@@ -35,7 +35,7 @@ serve(async (req) => {
     // Get OAuth token
     const authString = btoa(`${consumerKey}:${consumerSecret}`);
     const tokenRes = await fetch(
-      'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
+      'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
       {
         headers: { Authorization: `Basic ${authString}` },
       }
@@ -97,7 +97,7 @@ serve(async (req) => {
     console.log('STK Payload:', JSON.stringify(stkPayload));
 
     const stkRes = await fetch(
-      'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
+      'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
       {
         method: 'POST',
         headers: {
