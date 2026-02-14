@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { Wifi, Loader2, CheckCircle2, Clock, Zap, KeyRound } from "lucide-react";
+import { Wifi, Loader2, CheckCircle2, Clock, Zap, KeyRound, ArrowLeft, Signal } from "lucide-react";
 
 interface Package {
   id: string;
@@ -11,10 +11,10 @@ interface Package {
   description: string;
   duration_minutes: number;
   price: number;
-  speed_limit: string;
+  speed_limit: string | null;
 }
 
-type Step = "packages" | "login" | "payment" | "success";
+type Step = "packages" | "payment" | "success";
 
 const Portal = () => {
   const [packages, setPackages] = useState<Package[]>([]);
@@ -37,7 +37,6 @@ const Portal = () => {
     setError("");
     const code = loginCode.trim().toUpperCase();
 
-    // Check if it's a voucher code
     const { data: voucher } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
@@ -52,7 +51,6 @@ const Portal = () => {
       return;
     }
 
-    // Check if it's an M-Pesa receipt
     const { data: receipt } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
@@ -94,7 +92,6 @@ const Portal = () => {
         return;
       }
 
-      // Poll for payment completion
       let attempts = 0;
       const maxAttempts = 30;
       const poll = setInterval(async () => {
@@ -105,7 +102,6 @@ const Portal = () => {
 
         if (queryData?.success) {
           clearInterval(poll);
-          // Fetch the voucher created by the edge function
           const { data: voucher } = await supabase
             .from("vouchers")
             .select("code")
@@ -128,82 +124,94 @@ const Portal = () => {
   };
 
   const formatDuration = (minutes: number) => {
+    if (minutes >= 43200) return `${Math.floor(minutes / 43200)} Month${minutes >= 86400 ? 's' : ''}`;
+    if (minutes >= 10080) return `${Math.floor(minutes / 10080)} Week${minutes >= 20160 ? 's' : ''}`;
     if (minutes >= 1440) return `${Math.floor(minutes / 1440)} Day${minutes >= 2880 ? 's' : ''}`;
-    return `${Math.floor(minutes / 60)} Hour${minutes >= 120 ? 's' : ''}`;
+    if (minutes >= 60) return `${Math.floor(minutes / 60)} Hour${minutes >= 120 ? 's' : ''}`;
+    return `${minutes} Min`;
+  };
+
+  const getDurationIcon = (minutes: number) => {
+    if (minutes >= 10080) return "🗓️";
+    if (minutes >= 1440) return "📅";
+    if (minutes >= 60) return "⏰";
+    return "⏱️";
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-lg space-y-6">
+    <div className="min-h-screen bg-background flex flex-col items-center p-4 pt-8">
+      <div className="w-full max-w-md space-y-6">
         {/* Header */}
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 glow-primary">
-            <Wifi className="h-8 w-8 text-primary" />
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 glow-primary">
+            <Wifi className="h-7 w-7 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight font-mono text-foreground">
+          <h1 className="text-2xl font-bold tracking-tight font-mono text-foreground">
             WiFi Connect
           </h1>
-          <p className="text-muted-foreground text-sm">
-            Choose a package and get connected instantly
+          <p className="text-muted-foreground text-xs">
+            Select a plan to get online
           </p>
         </div>
 
-        {/* Login Code Section */}
+        {/* Already have a code */}
         {step === "packages" && (
-          <Card className="border-border">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter voucher or M-Pesa code"
-                  value={loginCode}
-                  onChange={(e) => setLoginCode(e.target.value)}
-                  className="font-mono bg-muted/50"
-                />
-                <Button
-                  onClick={handleLoginCode}
-                  disabled={!loginCode.trim() || loading}
-                  variant="outline"
-                  className="shrink-0"
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                </Button>
-              </div>
-              {error && step === "packages" && (
-                <p className="text-destructive text-xs mt-2 font-mono">{error}</p>
-              )}
-            </CardContent>
-          </Card>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Have a voucher or M-Pesa code?"
+              value={loginCode}
+              onChange={(e) => setLoginCode(e.target.value)}
+              className="font-mono text-sm bg-muted/50"
+            />
+            <Button
+              onClick={handleLoginCode}
+              disabled={!loginCode.trim() || loading}
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+            </Button>
+          </div>
         )}
 
-        {/* Package Selection */}
+        {error && step === "packages" && (
+          <p className="text-destructive text-xs font-mono text-center">{error}</p>
+        )}
+
+        {/* Package Cards */}
         {step === "packages" && (
-          <div className="space-y-3">
-            <h2 className="text-sm font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-              Select a Package
-            </h2>
+          <div className="grid grid-cols-2 gap-3">
             {packages.map((pkg) => (
               <Card
                 key={pkg.id}
-                className="cursor-pointer border-border hover:border-primary/50 transition-colors"
+                className="cursor-pointer border-border hover:border-primary/60 hover:shadow-[0_0_20px_hsl(145_63%_42%/0.15)] transition-all duration-200 group"
                 onClick={() => {
                   setSelectedPkg(pkg);
                   setStep("payment");
                   setError("");
                 }}
               >
-                <CardContent className="py-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Clock className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-mono font-semibold text-foreground">{pkg.name}</p>
-                      <p className="text-xs text-muted-foreground">{pkg.speed_limit} speed</p>
-                    </div>
+                <CardContent className="p-4 flex flex-col items-center text-center space-y-3">
+                  <span className="text-3xl">{getDurationIcon(pkg.duration_minutes)}</span>
+                  <div className="space-y-1">
+                    <p className="font-mono font-bold text-foreground text-sm group-hover:text-primary transition-colors">
+                      {pkg.name}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      {formatDuration(pkg.duration_minutes)}
+                    </p>
                   </div>
-                  <div className="text-right">
-                    <p className="font-mono font-bold text-primary text-lg">KES {pkg.price}</p>
-                    <p className="text-xs text-muted-foreground">{formatDuration(pkg.duration_minutes)}</p>
+                  {pkg.speed_limit && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Signal className="h-3 w-3" />
+                      <span className="text-[10px] font-mono">{pkg.speed_limit}</span>
+                    </div>
+                  )}
+                  <div className="w-full pt-2 border-t border-border">
+                    <p className="font-mono font-bold text-primary text-lg">
+                      KES {pkg.price}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -214,18 +222,18 @@ const Portal = () => {
         {/* Payment Step */}
         {step === "payment" && selectedPkg && (
           <Card className="glow-primary-strong border-primary/20">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-mono flex items-center gap-2">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
                 <Zap className="h-5 w-5 text-primary" />
-                Pay with M-Pesa
-              </CardTitle>
-              <CardDescription>
-                {selectedPkg.name} — KES {selectedPkg.price}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+                <div>
+                  <p className="font-mono font-bold text-foreground">Pay with M-Pesa</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedPkg.name} — KES {selectedPkg.price}
+                  </p>
+                </div>
+              </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground font-mono">
+                <label className="text-xs font-medium text-muted-foreground font-mono">
                   Safaricom Phone Number
                 </label>
                 <Input
@@ -240,9 +248,11 @@ const Portal = () => {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => { setStep("packages"); setError(""); }}
                   className="font-mono"
                 >
+                  <ArrowLeft className="h-4 w-4 mr-1" />
                   Back
                 </Button>
                 <Button
@@ -268,21 +278,22 @@ const Portal = () => {
         {step === "success" && (
           <Card className="border-primary/40 bg-primary/5 glow-primary-strong">
             <CardContent className="py-8 text-center space-y-4">
-              <CheckCircle2 className="h-16 w-16 text-primary mx-auto" />
+              <CheckCircle2 className="h-14 w-14 text-primary mx-auto" />
               <div>
-                <h2 className="text-xl font-bold font-mono text-foreground">You're Connected!</h2>
-                <p className="text-muted-foreground text-sm mt-1">Use this code to login to the WiFi</p>
+                <h2 className="text-lg font-bold font-mono text-foreground">You're Connected!</h2>
+                <p className="text-muted-foreground text-xs mt-1">Use this code to login to the WiFi</p>
               </div>
               <div className="bg-muted rounded-xl p-4">
-                <p className="text-4xl font-mono font-bold tracking-[0.3em] text-primary">
+                <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">
                   {voucherCode}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground font-mono">
-                Enter this code as both username and password on the login page
+              <p className="text-[10px] text-muted-foreground font-mono">
+                Enter this code as both username and password
               </p>
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => {
                   setStep("packages");
                   setVoucherCode("");
@@ -298,7 +309,7 @@ const Portal = () => {
           </Card>
         )}
 
-        <p className="text-center text-xs text-muted-foreground font-mono">
+        <p className="text-center text-[10px] text-muted-foreground font-mono">
           Powered by M-Pesa · Daraja API
         </p>
       </div>
