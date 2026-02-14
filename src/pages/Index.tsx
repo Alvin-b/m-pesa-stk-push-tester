@@ -3,13 +3,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { Smartphone, Loader2, CheckCircle2, XCircle, Zap } from "lucide-react";
+import { Smartphone, Loader2, CheckCircle2, XCircle, Zap, Search } from "lucide-react";
 
 const Index = () => {
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("1");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Query state
+  const [checkoutId, setCheckoutId] = useState("");
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [queryResult, setQueryResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,15 +31,44 @@ const Index = () => {
       } else if (data?.error) {
         setResult({ success: false, message: data.error + (data.details ? `: ${JSON.stringify(data.details)}` : "") });
       } else {
+        const cid = data?.data?.CheckoutRequestID || "N/A";
+        setCheckoutId(cid);
         setResult({
           success: true,
-          message: `STK Push sent! Check your phone. (CheckoutRequestID: ${data?.data?.CheckoutRequestID || "N/A"})`,
+          message: `STK Push sent! Check your phone. (CheckoutRequestID: ${cid})`,
         });
       }
     } catch (err: any) {
       setResult({ success: false, message: err.message || "Something went wrong" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQueryLoading(true);
+    setQueryResult(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("daraja-stk-query", {
+        body: { checkoutRequestId: checkoutId },
+      });
+
+      if (error) {
+        setQueryResult({ success: false, message: error.message || "Query failed" });
+      } else if (data?.error) {
+        setQueryResult({ success: false, message: data.error + (data.details ? `: ${JSON.stringify(data.details)}` : "") });
+      } else {
+        setQueryResult({
+          success: data?.success === true,
+          message: `${data?.meaning || "Unknown"} (ResultCode: ${data?.resultCode})`,
+        });
+      }
+    } catch (err: any) {
+      setQueryResult({ success: false, message: err.message || "Something went wrong" });
+    } finally {
+      setQueryLoading(false);
     }
   };
 
@@ -55,7 +89,7 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Form Card */}
+        {/* STK Push Form */}
         <Card className="glow-primary-strong border-primary/20">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-mono flex items-center gap-2">
@@ -113,7 +147,7 @@ const Index = () => {
           </CardContent>
         </Card>
 
-        {/* Result */}
+        {/* STK Push Result */}
         {result && (
           <Card className={`border ${result.success ? "border-primary/40 bg-primary/5" : "border-destructive/40 bg-destructive/5"}`}>
             <CardContent className="pt-4 pb-4">
@@ -129,9 +163,70 @@ const Index = () => {
           </Card>
         )}
 
+        {/* Transaction Status Query */}
+        <Card className="border-border">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg font-mono flex items-center gap-2">
+              <Search className="h-5 w-5 text-primary" />
+              Transaction Status
+            </CardTitle>
+            <CardDescription>
+              Check the status of an STK Push using its CheckoutRequestID
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleQuery} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground font-mono">
+                  CheckoutRequestID
+                </label>
+                <Input
+                  type="text"
+                  placeholder="ws_CO_..."
+                  value={checkoutId}
+                  onChange={(e) => setCheckoutId(e.target.value)}
+                  required
+                  className="font-mono bg-muted/50 border-border focus:border-primary focus:ring-primary"
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={queryLoading || !checkoutId}
+                className="w-full font-mono font-semibold"
+              >
+                {queryLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Checking Status...
+                  </>
+                ) : (
+                  "Check Status"
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Query Result */}
+        {queryResult && (
+          <Card className={`border ${queryResult.success ? "border-primary/40 bg-primary/5" : "border-destructive/40 bg-destructive/5"}`}>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-start gap-3">
+                {queryResult.success ? (
+                  <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+                )}
+                <p className="text-sm font-mono break-all">{queryResult.message}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground font-mono">
-          Using Safaricom Daraja Production API
+          Using Safaricom Daraja Production API · Till 4159923
         </p>
       </div>
     </div>
