@@ -14,16 +14,313 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      packages: {
+        Row: {
+          created_at: string
+          description: string | null
+          duration_minutes: number
+          id: string
+          is_active: boolean
+          name: string
+          price: number
+          speed_limit: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          duration_minutes: number
+          id?: string
+          is_active?: boolean
+          name: string
+          price: number
+          speed_limit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          price?: number
+          speed_limit?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      radacct: {
+        Row: {
+          acctinputoctets: number | null
+          acctoutputoctets: number | null
+          acctsessionid: string
+          acctstarttime: string | null
+          acctstoptime: string | null
+          acctterminatecause: string
+          acctuniqueid: string
+          acctupdatetime: string | null
+          calledstationid: string
+          callingstationid: string
+          framedipaddress: string
+          nasipaddress: string
+          nasportid: string | null
+          nasporttype: string | null
+          radacctid: number
+          username: string
+        }
+        Insert: {
+          acctinputoctets?: number | null
+          acctoutputoctets?: number | null
+          acctsessionid?: string
+          acctstarttime?: string | null
+          acctstoptime?: string | null
+          acctterminatecause?: string
+          acctuniqueid?: string
+          acctupdatetime?: string | null
+          calledstationid?: string
+          callingstationid?: string
+          framedipaddress?: string
+          nasipaddress?: string
+          nasportid?: string | null
+          nasporttype?: string | null
+          radacctid?: number
+          username?: string
+        }
+        Update: {
+          acctinputoctets?: number | null
+          acctoutputoctets?: number | null
+          acctsessionid?: string
+          acctstarttime?: string | null
+          acctstoptime?: string | null
+          acctterminatecause?: string
+          acctuniqueid?: string
+          acctupdatetime?: string | null
+          calledstationid?: string
+          callingstationid?: string
+          framedipaddress?: string
+          nasipaddress?: string
+          nasportid?: string | null
+          nasporttype?: string | null
+          radacctid?: number
+          username?: string
+        }
+        Relationships: []
+      }
+      radcheck: {
+        Row: {
+          attribute: string
+          id: number
+          op: string
+          username: string
+          value: string
+        }
+        Insert: {
+          attribute?: string
+          id?: number
+          op?: string
+          username?: string
+          value?: string
+        }
+        Update: {
+          attribute?: string
+          id?: number
+          op?: string
+          username?: string
+          value?: string
+        }
+        Relationships: []
+      }
+      router_settings: {
+        Row: {
+          api_password: string | null
+          api_port: string | null
+          api_username: string | null
+          created_at: string
+          created_by: string | null
+          dns_name: string | null
+          hotspot_interface: string | null
+          id: string
+          router_ip: string | null
+          router_name: string
+          updated_at: string
+        }
+        Insert: {
+          api_password?: string | null
+          api_port?: string | null
+          api_username?: string | null
+          created_at?: string
+          created_by?: string | null
+          dns_name?: string | null
+          hotspot_interface?: string | null
+          id?: string
+          router_ip?: string | null
+          router_name?: string
+          updated_at?: string
+        }
+        Update: {
+          api_password?: string | null
+          api_port?: string | null
+          api_username?: string | null
+          created_at?: string
+          created_by?: string | null
+          dns_name?: string | null
+          hotspot_interface?: string | null
+          id?: string
+          router_ip?: string | null
+          router_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sessions: {
+        Row: {
+          bytes_down: number | null
+          bytes_up: number | null
+          expires_at: string
+          id: string
+          ip_address: string | null
+          is_active: boolean
+          mac_address: string | null
+          started_at: string
+          voucher_id: string
+        }
+        Insert: {
+          bytes_down?: number | null
+          bytes_up?: number | null
+          expires_at: string
+          id?: string
+          ip_address?: string | null
+          is_active?: boolean
+          mac_address?: string | null
+          started_at?: string
+          voucher_id: string
+        }
+        Update: {
+          bytes_down?: number | null
+          bytes_up?: number | null
+          expires_at?: string
+          id?: string
+          ip_address?: string | null
+          is_active?: boolean
+          mac_address?: string | null
+          started_at?: string
+          voucher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_voucher_id_fkey"
+            columns: ["voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      vouchers: {
+        Row: {
+          checkout_request_id: string | null
+          code: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          mpesa_receipt: string | null
+          package_id: string
+          phone_number: string
+          status: string
+          used_at: string | null
+        }
+        Insert: {
+          checkout_request_id?: string | null
+          code: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          mpesa_receipt?: string | null
+          package_id: string
+          phone_number: string
+          status?: string
+          used_at?: string | null
+        }
+        Update: {
+          checkout_request_id?: string | null
+          code?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          mpesa_receipt?: string | null
+          package_id?: string
+          phone_number?: string
+          status?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vouchers_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +447,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
