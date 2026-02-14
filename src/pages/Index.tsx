@@ -131,7 +131,7 @@ const Index = () => {
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground font-mono">
-          Using Safaricom Daraja Sandbox API
+          Using Safaricom Daraja Production API
         </p>
       </div>
     </div>
