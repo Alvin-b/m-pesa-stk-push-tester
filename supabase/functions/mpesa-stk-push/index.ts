@@ -84,7 +84,7 @@ serve(async (req) => {
       BusinessShortCode: shortcode,
       Password: password,
       Timestamp: timestamp,
-      TransactionType: 'CustomerPayBillOnline',
+      TransactionType: 'CustomerBuyGoodsOnline',
       Amount: amount,
       PartyA: formattedPhone,
       PartyB: shortcode,
