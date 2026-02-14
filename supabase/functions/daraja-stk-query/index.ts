@@ -5,16 +5,27 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const resultCodeMap: Record<number, string> = {
+  0: 'Transaction successful',
+  1: 'Insufficient funds',
+  1032: 'Transaction cancelled by user',
+  1037: 'Timeout - Phone unreachable',
+  1025: 'Server error',
+  1019: 'Transaction expired',
+  2001: 'Wrong PIN entered',
+  1001: 'Unable to lock subscriber',
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { phone, amount } = await req.json();
+    const { checkoutRequestId } = await req.json();
 
-    if (!phone || !amount) {
-      return new Response(JSON.stringify({ error: 'Phone and amount are required' }), {
+    if (!checkoutRequestId) {
+      return new Response(JSON.stringify({ error: 'CheckoutRequestID is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -36,16 +47,12 @@ serve(async (req) => {
     const authString = btoa(`${consumerKey}:${consumerSecret}`);
     const tokenRes = await fetch(
       'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
-      {
-        headers: { Authorization: `Basic ${authString}` },
-      }
+      { headers: { Authorization: `Basic ${authString}` } }
     );
 
     const tokenBody = await tokenRes.text();
-    console.log('Token response status:', tokenRes.status, 'body:', tokenBody);
-
     if (!tokenRes.ok) {
-      return new Response(JSON.stringify({ error: 'Failed to get M-Pesa access token', details: tokenBody }), {
+      return new Response(JSON.stringify({ error: 'Failed to get access token', details: tokenBody }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -54,14 +61,13 @@ serve(async (req) => {
     const tokenData = JSON.parse(tokenBody);
     const access_token = tokenData.access_token?.trim();
     if (!access_token) {
-      return new Response(JSON.stringify({ error: 'No access token in response', details: tokenBody }), {
+      return new Response(JSON.stringify({ error: 'No access token in response' }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    console.log('Access token obtained, length:', access_token.length, 'token:', access_token.substring(0, 8) + '...');
 
-    // Format timestamp
+    // Generate timestamp and password
     const now = new Date();
     const timestamp = now.getFullYear().toString() +
       String(now.getMonth() + 1).padStart(2, '0') +
@@ -72,53 +78,46 @@ serve(async (req) => {
 
     const password = btoa(`${shortcode}${passkey}${timestamp}`);
 
-    // Format phone number (ensure 254 prefix)
-    let formattedPhone = phone.replace(/\s+/g, '').replace(/^0/, '254').replace(/^\+/, '');
-    if (!formattedPhone.startsWith('254')) {
-      formattedPhone = '254' + formattedPhone;
-    }
-
-    console.log('Using shortcode:', shortcode, 'timestamp:', timestamp, 'phone:', formattedPhone);
-
-    const stkPayload = {
+    const queryPayload = {
       BusinessShortCode: shortcode,
       Password: password,
       Timestamp: timestamp,
-      TransactionType: 'CustomerBuyGoodsOnline',
-      Amount: amount,
-      PartyA: formattedPhone,
-      PartyB: '4159923',
-      PhoneNumber: formattedPhone,
-      CallBackURL: 'https://example.com/callback',
-      AccountReference: 'Test',
-      TransactionDesc: 'Daraja API Test',
+      CheckoutRequestID: checkoutRequestId,
     };
 
-    console.log('STK Payload:', JSON.stringify(stkPayload));
+    console.log('Query payload:', JSON.stringify(queryPayload));
 
-    const stkRes = await fetch(
-      'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
+    const queryRes = await fetch(
+      'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query',
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(stkPayload),
+        body: JSON.stringify(queryPayload),
       }
     );
 
-    const stkData = await stkRes.json();
-    console.log('STK Push response status:', stkRes.status, 'body:', JSON.stringify(stkData));
+    const queryData = await queryRes.json();
+    console.log('Query response:', JSON.stringify(queryData));
 
-    if (!stkRes.ok || stkData.errorCode) {
-      return new Response(JSON.stringify({ error: 'STK Push failed', details: stkData }), {
+    if (!queryRes.ok || queryData.errorCode) {
+      return new Response(JSON.stringify({ error: 'Query failed', details: queryData }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    return new Response(JSON.stringify({ success: true, data: stkData }), {
+    const resultCode = queryData.ResultCode;
+    const meaning = resultCodeMap[resultCode] ?? `Unknown result code: ${resultCode}`;
+
+    return new Response(JSON.stringify({
+      success: resultCode === 0,
+      resultCode,
+      meaning,
+      data: queryData,
+    }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
