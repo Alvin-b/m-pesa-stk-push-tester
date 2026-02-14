@@ -1,9 +1,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+function generateVoucherCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let code = '';
+  for (let i = 0; i < 5; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -11,7 +21,7 @@ serve(async (req) => {
   }
 
   try {
-    const { phone, amount } = await req.json();
+    const { phone, amount, packageId } = await req.json();
 
     if (!phone || !amount) {
       return new Response(JSON.stringify({ error: 'Phone and amount are required' }), {
@@ -36,14 +46,10 @@ serve(async (req) => {
     const authString = btoa(`${consumerKey}:${consumerSecret}`);
     const tokenRes = await fetch(
       'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
-      {
-        headers: { Authorization: `Basic ${authString}` },
-      }
+      { headers: { Authorization: `Basic ${authString}` } }
     );
 
     const tokenBody = await tokenRes.text();
-    console.log('Token response status:', tokenRes.status, 'body:', tokenBody);
-
     if (!tokenRes.ok) {
       return new Response(JSON.stringify({ error: 'Failed to get M-Pesa access token', details: tokenBody }), {
         status: 502,
@@ -54,12 +60,11 @@ serve(async (req) => {
     const tokenData = JSON.parse(tokenBody);
     const access_token = tokenData.access_token?.trim();
     if (!access_token) {
-      return new Response(JSON.stringify({ error: 'No access token in response', details: tokenBody }), {
+      return new Response(JSON.stringify({ error: 'No access token in response' }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    console.log('Access token obtained, length:', access_token.length, 'token:', access_token.substring(0, 8) + '...');
 
     // Format timestamp
     const now = new Date();
@@ -72,13 +77,11 @@ serve(async (req) => {
 
     const password = btoa(`${shortcode}${passkey}${timestamp}`);
 
-    // Format phone number (ensure 254 prefix)
+    // Format phone number
     let formattedPhone = phone.replace(/\s+/g, '').replace(/^0/, '254').replace(/^\+/, '');
     if (!formattedPhone.startsWith('254')) {
       formattedPhone = '254' + formattedPhone;
     }
-
-    console.log('Using shortcode:', shortcode, 'timestamp:', timestamp, 'phone:', formattedPhone);
 
     const stkPayload = {
       BusinessShortCode: shortcode,
@@ -90,11 +93,9 @@ serve(async (req) => {
       PartyB: '4159923',
       PhoneNumber: formattedPhone,
       CallBackURL: 'https://example.com/callback',
-      AccountReference: 'Test',
-      TransactionDesc: 'Daraja API Test',
+      AccountReference: 'WiFi',
+      TransactionDesc: 'WiFi Package Purchase',
     };
-
-    console.log('STK Payload:', JSON.stringify(stkPayload));
 
     const stkRes = await fetch(
       'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
@@ -109,13 +110,33 @@ serve(async (req) => {
     );
 
     const stkData = await stkRes.json();
-    console.log('STK Push response status:', stkRes.status, 'body:', JSON.stringify(stkData));
 
     if (!stkRes.ok || stkData.errorCode) {
       return new Response(JSON.stringify({ error: 'STK Push failed', details: stkData }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // Create voucher in pending state if packageId provided
+    if (packageId) {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const sb = createClient(supabaseUrl, supabaseKey);
+
+      const code = generateVoucherCode();
+      await sb.from('vouchers').insert({
+        code,
+        package_id: packageId,
+        phone_number: formattedPhone,
+        checkout_request_id: stkData.CheckoutRequestID,
+        status: 'active',
+      });
+
+      // Also add to radcheck for RADIUS compatibility
+      await sb.from('radcheck').insert([
+        { username: code, attribute: 'Cleartext-Password', op: ':=', value: code },
+      ]);
     }
 
     return new Response(JSON.stringify({ success: true, data: stkData }), {
