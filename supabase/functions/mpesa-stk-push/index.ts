@@ -41,16 +41,19 @@ serve(async (req) => {
       }
     );
 
+    const tokenBody = await tokenRes.text();
+    console.log('Token response status:', tokenRes.status, 'body:', tokenBody);
+
     if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      console.error('Token error:', errText);
-      return new Response(JSON.stringify({ error: 'Failed to get M-Pesa access token', details: errText }), {
+      return new Response(JSON.stringify({ error: 'Failed to get M-Pesa access token', details: tokenBody }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const { access_token } = await tokenRes.json();
+    const tokenData = JSON.parse(tokenBody);
+    const access_token = tokenData.access_token;
+    console.log('Access token obtained, length:', access_token?.length);
 
     // Format timestamp
     const now = new Date();
