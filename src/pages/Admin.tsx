@@ -51,7 +51,6 @@ interface RouterSettingsRow {
   id: string;
   router_name: string;
   router_ip: string | null;
-  api_port: string | null;
   dns_name: string | null;
   hotspot_interface: string | null;
 }
@@ -89,7 +88,7 @@ const Admin = () => {
 
   const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_minutes: 60, price: 20, speed_limit: "" });
   const [savingPkg, setSavingPkg] = useState(false);
-  const [routerForm, setRouterForm] = useState({ router_name: "Main Router", router_ip: "", api_port: "8728", dns_name: "", hotspot_interface: "wlan1" });
+  const [routerForm, setRouterForm] = useState({ router_name: "Main Router", router_ip: "", dns_name: "", hotspot_interface: "wlan1" });
   const [savingRouter, setSavingRouter] = useState(false);
 
   // Voucher generation
@@ -124,7 +123,6 @@ const Admin = () => {
       setRouterForm({
         router_name: rRes.data.router_name || "Main Router",
         router_ip: rRes.data.router_ip || "",
-        api_port: rRes.data.api_port || "8728",
         dns_name: rRes.data.dns_name || "",
         hotspot_interface: rRes.data.hotspot_interface || "wlan1",
       });
@@ -475,7 +473,7 @@ const Admin = () => {
             <TabsTrigger value="vouchers" className="text-xs"><Key className="h-3.5 w-3.5 mr-1" /> Vouchers</TabsTrigger>
             <TabsTrigger value="sessions" className="text-xs"><Users className="h-3.5 w-3.5 mr-1" /> Sessions</TabsTrigger>
             <TabsTrigger value="packages" className="text-xs"><Package className="h-3.5 w-3.5 mr-1" /> Packages</TabsTrigger>
-            <TabsTrigger value="settings" className="text-xs"><Settings className="h-3.5 w-3.5 mr-1" /> MikroTik</TabsTrigger>
+            <TabsTrigger value="settings" className="text-xs"><Settings className="h-3.5 w-3.5 mr-1" /> Setup</TabsTrigger>
           </TabsList>
 
           {/* Vouchers Tab */}
@@ -703,11 +701,12 @@ const Admin = () => {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="font-mono text-sm flex items-center gap-2">
-                    <Settings className="h-4 w-4 text-primary" /> Router Settings
+                    <Settings className="h-4 w-4 text-primary" /> Captive Portal Setup
                   </CardTitle>
+                  <CardDescription className="text-xs">Configure your MikroTik hotspot to redirect users to this captive portal</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Router Name</label>
                       <Input value={routerForm.router_name} onChange={e => setRouterForm({ ...routerForm, router_name: e.target.value })} className="font-mono bg-muted/50 text-sm" />
@@ -715,10 +714,6 @@ const Admin = () => {
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Router IP</label>
                       <Input placeholder="192.168.88.1" value={routerForm.router_ip} onChange={e => setRouterForm({ ...routerForm, router_ip: e.target.value })} className="font-mono bg-muted/50 text-sm" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">API Port</label>
-                      <Input value={routerForm.api_port} onChange={e => setRouterForm({ ...routerForm, api_port: e.target.value })} className="font-mono bg-muted/50 text-sm" />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">DNS Name</label>
@@ -737,13 +732,14 @@ const Admin = () => {
               </Card>
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="font-mono text-sm">Configuration Files</CardTitle>
+                  <CardTitle className="font-mono text-sm">Captive Portal Files</CardTitle>
+                  <CardDescription className="text-xs">Download and upload these to your MikroTik router's hotspot directory</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
                     <div>
                       <p className="font-mono font-semibold text-xs">hotspot-setup.rsc</p>
-                      <p className="text-[10px] text-muted-foreground">RouterOS config script</p>
+                      <p className="text-[10px] text-muted-foreground">Hotspot config with captive portal redirect</p>
                     </div>
                     <Button variant="outline" size="sm" onClick={generateRscScript} className="font-mono text-xs">
                       <Download className="h-3.5 w-3.5 mr-1" /> Download
@@ -752,7 +748,7 @@ const Admin = () => {
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
                     <div>
                       <p className="font-mono font-semibold text-xs">login.html</p>
-                      <p className="text-[10px] text-muted-foreground">Redirect page for hotspot</p>
+                      <p className="text-[10px] text-muted-foreground">Redirect page for captive portal</p>
                     </div>
                     <Button variant="outline" size="sm" onClick={generateLoginHtml} className="font-mono text-xs">
                       <Download className="h-3.5 w-3.5 mr-1" /> Download
