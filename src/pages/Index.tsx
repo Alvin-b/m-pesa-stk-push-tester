@@ -1,234 +1,47 @@
-import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
-import { Smartphone, Loader2, CheckCircle2, XCircle, Zap, Search } from "lucide-react";
+import { Wifi, Shield } from "lucide-react";
 
 const Index = () => {
-  const [phone, setPhone] = useState("");
-  const [amount, setAmount] = useState("1");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  // Query state
-  const [checkoutId, setCheckoutId] = useState("");
-  const [queryLoading, setQueryLoading] = useState(false);
-  const [queryResult, setQueryResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setResult(null);
-
-    try {
-      const { data, error } = await supabase.functions.invoke("mpesa-stk-push", {
-        body: { phone, amount: parseInt(amount) },
-      });
-
-      if (error) {
-        setResult({ success: false, message: error.message || "Request failed" });
-      } else if (data?.error) {
-        setResult({ success: false, message: data.error + (data.details ? `: ${JSON.stringify(data.details)}` : "") });
-      } else {
-        const cid = data?.data?.CheckoutRequestID || "N/A";
-        setCheckoutId(cid);
-        setResult({
-          success: true,
-          message: `STK Push sent! Check your phone. (CheckoutRequestID: ${cid})`,
-        });
-      }
-    } catch (err: any) {
-      setResult({ success: false, message: err.message || "Something went wrong" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setQueryLoading(true);
-    setQueryResult(null);
-
-    try {
-      const { data, error } = await supabase.functions.invoke("daraja-stk-query", {
-        body: { checkoutRequestId: checkoutId },
-      });
-
-      if (error) {
-        setQueryResult({ success: false, message: error.message || "Query failed" });
-      } else if (data?.error) {
-        setQueryResult({ success: false, message: data.error + (data.details ? `: ${JSON.stringify(data.details)}` : "") });
-      } else {
-        setQueryResult({
-          success: data?.success === true,
-          message: `${data?.meaning || "Unknown"} (ResultCode: ${data?.resultCode})`,
-        });
-      }
-    } catch (err: any) {
-      setQueryResult({ success: false, message: err.message || "Something went wrong" });
-    } finally {
-      setQueryLoading(false);
-    }
-  };
+  const navigate = useNavigate();
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm text-primary font-mono">
-            <Zap className="h-3.5 w-3.5" />
-            Daraja API Tester
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight font-mono text-foreground">
-            M-Pesa STK Push
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Test your Daraja API credentials by sending an STK push to any Safaricom number
-          </p>
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 space-y-8">
+      <div className="text-center space-y-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-primary/10 border border-primary/20 glow-primary-strong">
+          <Wifi className="h-10 w-10 text-primary" />
         </div>
-
-        {/* STK Push Form */}
-        <Card className="glow-primary-strong border-primary/20">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-mono flex items-center gap-2">
-              <Smartphone className="h-5 w-5 text-primary" />
-              Payment Request
-            </CardTitle>
-            <CardDescription>
-              Enter a phone number to receive the STK push prompt
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground font-mono">
-                  Phone Number
-                </label>
-                <Input
-                  type="tel"
-                  placeholder="0712345678 or 254712345678"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                  className="font-mono bg-muted/50 border-border focus:border-primary focus:ring-primary"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground font-mono">
-                  Amount (KES)
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  placeholder="1"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  required
-                  className="font-mono bg-muted/50 border-border focus:border-primary focus:ring-primary"
-                />
-              </div>
-              <Button
-                type="submit"
-                disabled={loading || !phone}
-                className="w-full font-mono font-semibold glow-primary"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending STK Push...
-                  </>
-                ) : (
-                  "Send STK Push"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* STK Push Result */}
-        {result && (
-          <Card className={`border ${result.success ? "border-primary/40 bg-primary/5" : "border-destructive/40 bg-destructive/5"}`}>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-start gap-3">
-                {result.success ? (
-                  <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
-                )}
-                <p className="text-sm font-mono break-all">{result.message}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Transaction Status Query */}
-        <Card className="border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-mono flex items-center gap-2">
-              <Search className="h-5 w-5 text-primary" />
-              Transaction Status
-            </CardTitle>
-            <CardDescription>
-              Check the status of an STK Push using its CheckoutRequestID
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleQuery} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground font-mono">
-                  CheckoutRequestID
-                </label>
-                <Input
-                  type="text"
-                  placeholder="ws_CO_..."
-                  value={checkoutId}
-                  onChange={(e) => setCheckoutId(e.target.value)}
-                  required
-                  className="font-mono bg-muted/50 border-border focus:border-primary focus:ring-primary"
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="outline"
-                disabled={queryLoading || !checkoutId}
-                className="w-full font-mono font-semibold"
-              >
-                {queryLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Checking Status...
-                  </>
-                ) : (
-                  "Check Status"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Query Result */}
-        {queryResult && (
-          <Card className={`border ${queryResult.success ? "border-primary/40 bg-primary/5" : "border-destructive/40 bg-destructive/5"}`}>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-start gap-3">
-                {queryResult.success ? (
-                  <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
-                )}
-                <p className="text-sm font-mono break-all">{queryResult.message}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground font-mono">
-          Using Safaricom Daraja Production API · Till 4159923
+        <h1 className="text-4xl font-bold tracking-tight font-mono text-foreground">
+          WiFi Billing
+        </h1>
+        <p className="text-muted-foreground max-w-md">
+          Automated WiFi hotspot billing with M-Pesa payments and MikroTik integration
         </p>
       </div>
+
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Button
+          size="lg"
+          onClick={() => navigate("/portal")}
+          className="font-mono font-semibold glow-primary px-8"
+        >
+          <Wifi className="mr-2 h-5 w-5" />
+          Connect to WiFi
+        </Button>
+        <Button
+          size="lg"
+          variant="outline"
+          onClick={() => navigate("/admin/login")}
+          className="font-mono font-semibold px-8"
+        >
+          <Shield className="mr-2 h-5 w-5" />
+          Admin Portal
+        </Button>
+      </div>
+
+      <p className="text-xs text-muted-foreground font-mono">
+        Powered by M-Pesa Daraja API · MikroTik · FreeRADIUS
+      </p>
     </div>
   );
 };
