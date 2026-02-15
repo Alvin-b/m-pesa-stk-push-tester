@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { Wifi, Loader2, CheckCircle2, Zap, KeyRound, ArrowLeft, Signal, Clock, CalendarDays, CalendarRange, Calendar } from "lucide-react";
 import SupportChat from "@/components/SupportChat";
+import networkBg from "@/assets/network-bg.png";
 
 interface Package {
   id: string;
@@ -150,8 +151,12 @@ const Portal = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center p-4 pt-8">
-      <div className="w-full max-w-lg space-y-6">
+    <div
+      className="min-h-screen bg-background flex flex-col items-center p-4 pt-8 relative"
+      style={{ backgroundImage: `url(${networkBg})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed" }}
+    >
+      <div className="absolute inset-0 bg-background/85 backdrop-blur-sm" />
+      <div className="w-full max-w-lg space-y-6 relative z-10">
         {/* Header */}
         <div className="text-center space-y-3">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 glow-primary">
@@ -338,7 +343,9 @@ const Portal = () => {
           Powered by M-Pesa · Daraja API
         </p>
       </div>
-      <SupportChat />
+      <div className="relative z-10">
+        <SupportChat />
+      </div>
     </div>
   );
 };
