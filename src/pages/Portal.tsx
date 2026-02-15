@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { Wifi, Loader2, CheckCircle2, Zap, KeyRound, ArrowLeft, Signal, Clock, CalendarDays, CalendarRange, Calendar } from "lucide-react";
+import SupportChat from "@/components/SupportChat";
 
 interface Package {
   id: string;
@@ -337,6 +338,7 @@ const Portal = () => {
           Powered by M-Pesa · Daraja API
         </p>
       </div>
+      <SupportChat />
     </div>
   );
 };

@@ -5,3 +5,12 @@ verify_jwt = false
 
 [functions.daraja-stk-query]
 verify_jwt = false
+
+[functions.support-chat]
+verify_jwt = false
+
+[functions.generate-voucher]
+verify_jwt = true
+
+[functions.revoke-voucher]
+verify_jwt = true
