@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { Wifi, Loader2, CheckCircle2, Zap, KeyRound, ArrowLeft, Signal, Clock, CalendarDays, CalendarRange, Calendar } from "lucide-react";
+import { Wifi, Loader2, CheckCircle2, Zap, KeyRound, ArrowLeft, Signal, Clock, CalendarDays, CalendarRange, Check } from "lucide-react";
 import SupportChat from "@/components/SupportChat";
 import networkBg from "@/assets/network-bg.png";
 
@@ -24,9 +24,12 @@ const Portal = () => {
   const [step, setStep] = useState<Step>("packages");
   const [phone, setPhone] = useState("");
   const [loginCode, setLoginCode] = useState("");
+  const [mpesaCode, setMpesaCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mpesaLoading, setMpesaLoading] = useState(false);
   const [voucherCode, setVoucherCode] = useState("");
   const [error, setError] = useState("");
+  const [mpesaError, setMpesaError] = useState("");
 
   useEffect(() => {
     supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
@@ -34,7 +37,7 @@ const Portal = () => {
     });
   }, []);
 
-  const handleLoginCode = async () => {
+  const handleAccessCode = async () => {
     setLoading(true);
     setError("");
     const code = loginCode.trim().toUpperCase();
@@ -53,6 +56,15 @@ const Portal = () => {
       return;
     }
 
+    setError("Invalid access code. Please check and try again.");
+    setLoading(false);
+  };
+
+  const handleMpesaCode = async () => {
+    setMpesaLoading(true);
+    setMpesaError("");
+    const code = mpesaCode.trim().toUpperCase();
+
     const { data: receipt } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
@@ -63,12 +75,12 @@ const Portal = () => {
     if (receipt) {
       setVoucherCode(receipt.code);
       setStep("success");
-      setLoading(false);
+      setMpesaLoading(false);
       return;
     }
 
-    setError("Invalid code. Please check and try again.");
-    setLoading(false);
+    setMpesaError("Transaction not found. Please check your M-Pesa code.");
+    setMpesaLoading(false);
   };
 
   const handlePayment = async () => {
@@ -133,216 +145,251 @@ const Portal = () => {
     return `${minutes} Min`;
   };
 
-  const getDurationIcon = (minutes: number) => {
-    if (minutes >= 10080) return <CalendarRange className="h-6 w-6" />;
-    if (minutes >= 1440) return <CalendarDays className="h-6 w-6" />;
-    if (minutes >= 60) return <Clock className="h-6 w-6" />;
-    return <Clock className="h-5 w-5" />;
-  };
-
-  const getAccentClass = (index: number) => {
-    const accents = [
-      "from-primary/20 to-primary/5 border-primary/30",
-      "from-primary/15 to-transparent border-primary/20",
-      "from-primary/10 to-transparent border-primary/15",
-      "from-primary/20 to-primary/5 border-primary/25",
-    ];
-    return accents[index % accents.length];
+  const getFeatures = (pkg: Package) => {
+    const features = [`${formatDuration(pkg.duration_minutes)} Access`];
+    if (pkg.speed_limit) {
+      features.push(`Speed: ${pkg.speed_limit}`);
+    } else {
+      features.push("High Speed Internet");
+    }
+    features.push("Multiple Device Support");
+    return features;
   };
 
   return (
     <div
-      className="min-h-screen bg-background flex flex-col items-center p-4 pt-8 relative"
+      className="min-h-screen bg-background flex flex-col relative"
       style={{ backgroundImage: `url(${networkBg})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed" }}
     >
       <div className="absolute inset-0 bg-background/85 backdrop-blur-sm" />
-      <div className="w-full max-w-lg space-y-6 relative z-10">
-        {/* Header */}
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 glow-primary">
-            <Wifi className="h-8 w-8 text-primary" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight font-mono text-foreground">
-            WiFi Connect
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Choose a plan and get connected instantly
-          </p>
+      
+      {/* Header */}
+      <div className="relative z-10 text-center pt-8 pb-4 px-4">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-3">
+          <Wifi className="h-7 w-7 text-primary" />
         </div>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-mono text-foreground">
+          WiFi Access Portal
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          Connect to high-speed internet in seconds
+        </p>
+      </div>
 
-        {/* Already have a code */}
+      {/* Main Content */}
+      <div className="flex-1 relative z-10 px-4 pb-8">
         {step === "packages" && (
-          <Card className="border-border bg-card/50 backdrop-blur">
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground font-mono mb-2">Already have a code?</p>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter voucher or M-Pesa code"
-                  value={loginCode}
-                  onChange={(e) => setLoginCode(e.target.value)}
-                  className="font-mono text-sm bg-muted/50"
-                />
-                <Button
-                  onClick={handleLoginCode}
-                  disabled={!loginCode.trim() || loading}
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0 border-primary/30 hover:bg-primary/10"
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                </Button>
-              </div>
-              {error && step === "packages" && (
-                <p className="text-destructive text-xs font-mono mt-2">{error}</p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Package Cards */}
-        {step === "packages" && (
-          <div className="space-y-3">
-            <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest px-1">Available Plans</h2>
-            <div className="grid grid-cols-2 gap-3">
-              {packages.map((pkg, index) => (
-                <Card
-                  key={pkg.id}
-                  className={`cursor-pointer bg-gradient-to-br ${getAccentClass(index)} hover:shadow-[0_0_30px_hsl(145_63%_42%/0.2)] transition-all duration-300 group relative overflow-hidden`}
-                  onClick={() => {
-                    setSelectedPkg(pkg);
-                    setStep("payment");
-                    setError("");
-                  }}
-                >
-                  {/* Decorative glow circle */}
-                  <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-primary/5 group-hover:bg-primary/10 transition-colors duration-300" />
-                  
-                  <CardContent className="p-5 flex flex-col items-center text-center space-y-3 relative">
-                    <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300">
-                      {getDurationIcon(pkg.duration_minutes)}
+          <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-6 mt-4">
+            {/* Left Column - Code Entry */}
+            <div className="lg:col-span-2">
+              <Card className="border-border bg-card/80 backdrop-blur">
+                <CardContent className="p-6 space-y-6">
+                  {/* Access Code Section */}
+                  <div className="space-y-3">
+                    <h2 className="text-lg font-semibold text-foreground">Already have a code?</h2>
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground font-mono">Access Code</label>
+                      <Input
+                        placeholder="Enter your access code"
+                        value={loginCode}
+                        onChange={(e) => setLoginCode(e.target.value)}
+                        className="font-mono bg-muted/50 h-11"
+                      />
                     </div>
-                    <div className="space-y-1">
-                      <p className="font-mono font-bold text-foreground text-sm group-hover:text-primary transition-colors">
-                        {pkg.name}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {formatDuration(pkg.duration_minutes)}
-                      </p>
-                    </div>
-                    {pkg.speed_limit && (
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-muted/50 border border-border">
-                        <Signal className="h-3 w-3 text-primary" />
-                        <span className="text-[10px] font-mono text-muted-foreground">{pkg.speed_limit}</span>
-                      </div>
+                    <Button
+                      onClick={handleAccessCode}
+                      disabled={!loginCode.trim() || loading}
+                      className="w-full font-mono font-semibold h-11"
+                    >
+                      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+                      Connect with Access Code
+                    </Button>
+                    {error && step === "packages" && (
+                      <p className="text-destructive text-xs font-mono">{error}</p>
                     )}
-                    <div className="w-full pt-3 border-t border-border/50">
-                      <p className="font-mono font-bold text-primary text-xl">
-                        KES {pkg.price}
-                      </p>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground font-mono">OR</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+
+                  {/* M-Pesa Transaction Code */}
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground font-mono">M-Pesa Transaction Code</label>
+                      <Input
+                        placeholder="Enter M-Pesa transaction code"
+                        value={mpesaCode}
+                        onChange={(e) => setMpesaCode(e.target.value)}
+                        className="font-mono bg-muted/50 h-11"
+                      />
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    <Button
+                      onClick={handleMpesaCode}
+                      disabled={!mpesaCode.trim() || mpesaLoading}
+                      variant="outline"
+                      className="w-full font-mono font-semibold h-11 border-primary/30 hover:bg-primary/10"
+                    >
+                      {mpesaLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Verify Transaction
+                    </Button>
+                    {mpesaError && (
+                      <p className="text-destructive text-xs font-mono">{mpesaError}</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right Column - Plans */}
+            <div className="lg:col-span-3 space-y-3">
+              <h2 className="text-lg font-semibold text-primary font-mono px-1">Choose a Plan</h2>
+              <div className="space-y-3">
+                {packages.map((pkg) => (
+                  <Card
+                    key={pkg.id}
+                    className="cursor-pointer border-border hover:border-primary/40 bg-card/80 backdrop-blur transition-all duration-200 group"
+                    onClick={() => {
+                      setSelectedPkg(pkg);
+                      setStep("payment");
+                      setError("");
+                    }}
+                  >
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h3 className="font-mono font-bold text-foreground text-base group-hover:text-primary transition-colors">
+                            {pkg.name}
+                          </h3>
+                          <span className="inline-block mt-1 text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                            {formatDuration(pkg.duration_minutes)}
+                          </span>
+                        </div>
+                        <p className="font-mono font-bold text-foreground text-xl">
+                          KES {pkg.price.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="space-y-2 mt-4">
+                        {getFeatures(pkg).map((feature, i) => (
+                          <div key={i} className="flex items-center gap-2.5">
+                            <Check className="h-4 w-4 text-primary shrink-0" />
+                            <span className="text-sm text-muted-foreground">{feature}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
         {/* Payment Step */}
         {step === "payment" && selectedPkg && (
-          <Card className="glow-primary-strong border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
-            <CardContent className="p-6 space-y-5">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                  <Zap className="h-6 w-6 text-primary" />
+          <div className="max-w-md mx-auto mt-4">
+            <Card className="border-primary/20 bg-card/80 backdrop-blur">
+              <CardContent className="p-6 space-y-5">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                    <Zap className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-mono font-bold text-foreground text-lg">Pay with M-Pesa</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedPkg.name} — <span className="text-primary font-semibold">KES {selectedPkg.price}</span>
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-mono font-bold text-foreground text-lg">Pay with M-Pesa</p>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedPkg.name} — <span className="text-primary font-semibold">KES {selectedPkg.price}</span>
-                  </p>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground font-mono">
+                    Safaricom Phone Number
+                  </label>
+                  <Input
+                    type="tel"
+                    placeholder="0712345678"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="font-mono bg-muted/50 h-12 text-base"
+                  />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground font-mono">
-                  Safaricom Phone Number
-                </label>
-                <Input
-                  type="tel"
-                  placeholder="0712345678"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="font-mono bg-muted/50 h-12 text-base"
-                />
-              </div>
-              {error && <p className="text-destructive text-xs font-mono">{error}</p>}
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => { setStep("packages"); setError(""); }}
-                  className="font-mono"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-1" />
-                  Back
-                </Button>
-                <Button
-                  onClick={handlePayment}
-                  disabled={loading || !phone}
-                  className="flex-1 font-mono font-semibold glow-primary h-12 text-base"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    `Pay KES ${selectedPkg.price}`
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                {error && <p className="text-destructive text-xs font-mono">{error}</p>}
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => { setStep("packages"); setError(""); }}
+                    className="font-mono"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-1" />
+                    Back
+                  </Button>
+                  <Button
+                    onClick={handlePayment}
+                    disabled={loading || !phone}
+                    className="flex-1 font-mono font-semibold h-12 text-base"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      `Pay KES ${selectedPkg.price}`
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* Success */}
         {step === "success" && (
-          <Card className="border-primary/40 bg-gradient-to-br from-primary/10 to-transparent glow-primary-strong">
-            <CardContent className="py-10 text-center space-y-5">
-              <div className="w-16 h-16 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="h-8 w-8 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold font-mono text-foreground">You're Connected!</h2>
-                <p className="text-muted-foreground text-sm mt-1">Use this code to login to the WiFi</p>
-              </div>
-              <div className="bg-muted rounded-2xl p-5 border border-border">
-                <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">
-                  {voucherCode}
+          <div className="max-w-md mx-auto mt-4">
+            <Card className="border-primary/40 bg-card/80 backdrop-blur">
+              <CardContent className="py-10 text-center space-y-5">
+                <div className="w-16 h-16 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold font-mono text-foreground">You're Connected!</h2>
+                  <p className="text-muted-foreground text-sm mt-1">Use this code to login to the WiFi</p>
+                </div>
+                <div className="bg-muted rounded-2xl p-5 border border-border">
+                  <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">
+                    {voucherCode}
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground font-mono">
+                  Enter this code as both username and password
                 </p>
-              </div>
-              <p className="text-xs text-muted-foreground font-mono">
-                Enter this code as both username and password
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setStep("packages");
-                  setVoucherCode("");
-                  setLoginCode("");
-                  setPhone("");
-                  setError("");
-                }}
-                className="font-mono"
-              >
-                Buy Another Package
-              </Button>
-            </CardContent>
-          </Card>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setStep("packages");
+                    setVoucherCode("");
+                    setLoginCode("");
+                    setMpesaCode("");
+                    setPhone("");
+                    setError("");
+                    setMpesaError("");
+                  }}
+                  className="font-mono"
+                >
+                  Buy Another Package
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         )}
-
-        <p className="text-center text-[10px] text-muted-foreground font-mono">
-          Powered by M-Pesa · Daraja API
-        </p>
       </div>
+
+      <p className="relative z-10 text-center text-[10px] text-muted-foreground font-mono pb-4">
+        Powered by M-Pesa · Daraja API
+      </p>
       <div className="relative z-10">
         <SupportChat />
       </div>

@@ -7,16 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   Users, Package, Settings, LogOut, Wifi, Key, Plus, Trash2, Download,
   Loader2, Activity, TrendingUp, DollarSign, BarChart3, Ban, Ticket, RefreshCw,
-  Calendar, ArrowUpRight, ArrowDownRight, Shield, Copy, CheckCircle2
+  Calendar, ArrowUpRight, Shield, Copy, CheckCircle2, LayoutDashboard, CreditCard,
+  Radio, Menu, X
 } from "lucide-react";
-import { format, subDays, startOfDay, startOfWeek, startOfMonth, parseISO, isToday, isThisWeek, isThisMonth } from "date-fns";
+import { format, subDays, startOfDay, parseISO, isToday, isThisWeek, isThisMonth } from "date-fns";
 
 interface VoucherRow {
   id: string;
@@ -78,6 +78,8 @@ const CHART_COLORS = [
   "hsl(0, 60%, 50%)",
 ];
 
+type ActiveSection = "overview" | "analytics" | "vouchers" | "sessions" | "packages" | "setup";
+
 const Admin = () => {
   const { user, isAdmin, loading: authLoading, signOut } = useAuth();
   const navigate = useNavigate();
@@ -86,13 +88,14 @@ const Admin = () => {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [routerSettings, setRouterSettings] = useState<RouterSettingsRow | null>(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [activeSection, setActiveSection] = useState<ActiveSection>("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_minutes: 60, price: 20, speed_limit: "" });
   const [savingPkg, setSavingPkg] = useState(false);
   const [routerForm, setRouterForm] = useState({ router_name: "Main Router", router_ip: "", dns_name: "", hotspot_interface: "wlan1" });
   const [savingRouter, setSavingRouter] = useState(false);
 
-  // Voucher generation
   const [genPkgId, setGenPkgId] = useState("");
   const [genPhone, setGenPhone] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -131,7 +134,6 @@ const Admin = () => {
     setLoadingData(false);
   };
 
-  // Revenue calculations
   const revenueStats = useMemo(() => {
     const paid = vouchers.filter(v => v.status !== "revoked" && v.packages?.price);
     const total = paid.reduce((s, v) => s + (v.packages?.price || 0), 0);
@@ -144,7 +146,6 @@ const Admin = () => {
     return { total, todayRev, weekRev, monthRev, todayCount: today.length, weekCount: week.length, monthCount: month.length };
   }, [vouchers]);
 
-  // Daily chart data (last 14 days)
   const dailyChartData = useMemo(() => {
     const days: { date: string; revenue: number; sales: number }[] = [];
     for (let i = 13; i >= 0; i--) {
@@ -160,7 +161,6 @@ const Admin = () => {
     return days;
   }, [vouchers]);
 
-  // Package breakdown for pie chart
   const packageBreakdown = useMemo(() => {
     const map: Record<string, { name: string; count: number; revenue: number }> = {};
     vouchers.filter(v => v.status !== "revoked" && v.packages).forEach(v => {
@@ -348,199 +348,293 @@ const Admin = () => {
     sales: { label: "Sales", color: "hsl(145, 63%, 55%)" },
   };
 
+  const sidebarItems: { section: ActiveSection; icon: React.ReactNode; label: string; category?: string }[] = [
+    { section: "overview", icon: <LayoutDashboard className="h-4 w-4" />, label: "Overview", category: "DASHBOARD" },
+    { section: "analytics", icon: <BarChart3 className="h-4 w-4" />, label: "Analytics" },
+    { section: "vouchers", icon: <Ticket className="h-4 w-4" />, label: "Vouchers", category: "MANAGEMENT" },
+    { section: "sessions", icon: <Users className="h-4 w-4" />, label: "Sessions" },
+    { section: "packages", icon: <Package className="h-4 w-4" />, label: "Plans" },
+    { section: "setup", icon: <Radio className="h-4 w-4" />, label: "Router Setup", category: "NETWORK" },
+  ];
+
+  const navigateTo = (section: ActiveSection) => {
+    setActiveSection(section);
+    setSidebarOpen(false);
+  };
+
   return (
-    <div
-      className="min-h-screen bg-background relative"
+    <div className="min-h-screen bg-background flex relative"
       style={{ backgroundImage: `url(${networkBg})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed" }}
     >
-      <div className="absolute inset-0 bg-background/90" />
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-lg px-6 py-3 relative">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <div className="absolute inset-0 bg-background/92" />
+
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-56 bg-card/95 backdrop-blur-md border-r border-border z-50 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* Brand */}
+        <div className="p-4 border-b border-border">
+          <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
               <Wifi className="h-5 w-5 text-primary" />
             </div>
+            <span className="font-mono font-bold text-foreground text-sm">WiFi Pro</span>
+          </div>
+        </div>
+
+        {/* Nav Items */}
+        <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+          {sidebarItems.map((item) => (
+            <div key={item.section}>
+              {item.category && (
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest px-3 pt-4 pb-1.5">
+                  {item.category}
+                </p>
+              )}
+              <button
+                onClick={() => navigateTo(item.section)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-mono transition-colors ${
+                  activeSection === item.section
+                    ? "bg-primary/15 text-primary border border-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            </div>
+          ))}
+        </nav>
+
+        {/* User / Logout */}
+        <div className="p-3 border-t border-border">
+          <div className="flex items-center gap-2 px-2 mb-2">
+            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+              <Shield className="h-3.5 w-3.5 text-primary" />
+            </div>
+            <span className="text-[10px] text-muted-foreground font-mono truncate flex-1">{user?.email}</span>
+          </div>
+          <Button variant="ghost" size="sm" onClick={signOut} className="w-full justify-start font-mono text-xs text-muted-foreground hover:text-destructive">
+            <LogOut className="h-3.5 w-3.5 mr-2" /> Sign Out
+          </Button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 min-h-screen relative z-10">
+        {/* Top Bar */}
+        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-lg px-4 md:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-muted/50">
+              <Menu className="h-5 w-5 text-muted-foreground" />
+            </button>
             <div>
-              <h1 className="text-lg font-bold font-mono text-foreground">WiFi Admin</h1>
-              <p className="text-[10px] text-muted-foreground font-mono">Dashboard & Management</p>
+              <h1 className="text-lg font-bold font-mono text-foreground capitalize">{activeSection === "overview" ? "Dashboard Overview" : activeSection}</h1>
+              <p className="text-[10px] text-muted-foreground font-mono">Dashboard / {activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={loadData} className="font-mono text-xs">
-              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
-            </Button>
-            <div className="h-6 w-px bg-border" />
-            <span className="text-[10px] text-muted-foreground font-mono hidden sm:block">{user?.email}</span>
-            <Button variant="ghost" size="icon" onClick={signOut} className="h-8 w-8">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
+          <Button variant="ghost" size="sm" onClick={loadData} className="font-mono text-xs">
+            <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
+          </Button>
+        </header>
 
-      <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 relative z-10">
-        {/* Revenue Stats Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
-                  <DollarSign className="h-5 w-5 text-primary" />
-                </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary">Total</span>
-              </div>
-              <p className="text-2xl font-bold font-mono text-foreground">KES {revenueStats.total.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">{vouchers.length} total vouchers</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <TrendingUp className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex items-center gap-1 text-primary text-[10px] font-mono">
-                  <ArrowUpRight className="h-3 w-3" /> Today
-                </div>
-              </div>
-              <p className="text-2xl font-bold font-mono text-foreground">KES {revenueStats.todayRev.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">{revenueStats.todayCount} sales today</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Calendar className="h-5 w-5 text-primary" />
-                </div>
-                <span className="text-[10px] font-mono text-muted-foreground">This Week</span>
-              </div>
-              <p className="text-2xl font-bold font-mono text-foreground">KES {revenueStats.weekRev.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">{revenueStats.weekCount} sales</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <BarChart3 className="h-5 w-5 text-primary" />
-                </div>
-                <span className="text-[10px] font-mono text-muted-foreground">This Month</span>
-              </div>
-              <p className="text-2xl font-bold font-mono text-foreground">KES {revenueStats.monthRev.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">{revenueStats.monthCount} sales</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Quick Stats Row */}
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="bg-muted/30">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <Activity className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-xl font-bold font-mono text-foreground">{activeSessions.length}</p>
-                <p className="text-[10px] text-muted-foreground">Online Now</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-muted/30">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <Key className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-xl font-bold font-mono text-foreground">{vouchers.filter(v => v.status === "active").length}</p>
-                <p className="text-[10px] text-muted-foreground">Active Vouchers</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-muted/30">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <Package className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-xl font-bold font-mono text-foreground">{packages.filter(p => p.is_active).length}</p>
-                <p className="text-[10px] text-muted-foreground">Active Packages</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="lg:col-span-2">
-            <CardHeader className="pb-2">
-              <CardTitle className="font-mono text-sm flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-primary" /> Revenue (Last 14 Days)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={chartConfig} className="h-[250px] w-full">
-                <BarChart data={dailyChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(160, 10%, 18%)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(150, 10%, 50%)" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "hsl(150, 10%, 50%)" }} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="revenue" fill="hsl(145, 63%, 42%)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="font-mono text-sm flex items-center gap-2">
-                <Package className="h-4 w-4 text-primary" /> Package Breakdown
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {packageBreakdown.length === 0 ? (
-                <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
-              ) : (
-                <div className="h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={packageBreakdown} dataKey="revenue" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                        {packageBreakdown.map((_, i) => (
-                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-              <div className="space-y-1.5 mt-2">
-                {packageBreakdown.slice(0, 4).map((p, i) => (
-                  <div key={p.name} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                      <span className="text-muted-foreground font-mono">{p.name}</span>
-                    </div>
-                    <span className="font-mono text-foreground">KES {p.revenue.toLocaleString()}</span>
-                  </div>
+        <div className="p-4 md:p-6 space-y-6">
+          {/* OVERVIEW */}
+          {activeSection === "overview" && (
+            <>
+              {/* Stat Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: "TOTAL USERS", value: vouchers.length, icon: <Users className="h-5 w-5" />, sub: `+${revenueStats.todayCount} today`, color: "border-t-[hsl(200,80%,55%)]" },
+                  { label: "ACTIVE USERS", value: activeSessions.length, icon: <Wifi className="h-5 w-5" />, sub: `${activeSessions.length} sessions`, color: "border-t-primary" },
+                  { label: "TOTAL REVENUE", value: `KES ${revenueStats.total.toLocaleString()}`, icon: <DollarSign className="h-5 w-5" />, sub: `+${revenueStats.todayRev.toLocaleString()} today`, color: "border-t-[hsl(35,80%,55%)]" },
+                  { label: "SUCCESSFUL PAYMENTS", value: vouchers.filter(v => v.status !== "revoked").length, icon: <CreditCard className="h-5 w-5" />, sub: `${revenueStats.todayCount} today`, color: "border-t-[hsl(330,70%,55%)]" },
+                ].map((stat) => (
+                  <Card key={stat.label} className={`border-t-2 ${stat.color}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                          {stat.icon}
+                        </div>
+                      </div>
+                      <p className="text-2xl font-bold font-mono text-foreground">{stat.value}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mt-1">{stat.label}</p>
+                      <p className="text-[10px] text-primary font-mono mt-1">{stat.sub}</p>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        </div>
 
-        {/* Main Tabs */}
-        <Tabs defaultValue="vouchers" className="space-y-4">
-          <TabsList className="font-mono bg-muted/50 p-1">
-            <TabsTrigger value="vouchers" className="text-xs"><Key className="h-3.5 w-3.5 mr-1" /> Vouchers</TabsTrigger>
-            <TabsTrigger value="sessions" className="text-xs"><Users className="h-3.5 w-3.5 mr-1" /> Sessions</TabsTrigger>
-            <TabsTrigger value="packages" className="text-xs"><Package className="h-3.5 w-3.5 mr-1" /> Packages</TabsTrigger>
-            <TabsTrigger value="settings" className="text-xs"><Settings className="h-3.5 w-3.5 mr-1" /> Setup</TabsTrigger>
-          </TabsList>
+              {/* Quick Actions */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-mono text-sm">Quick Actions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Button onClick={() => setActiveSection("packages")} className="h-12 font-mono text-xs bg-primary hover:bg-primary/90">
+                      <Plus className="h-4 w-4 mr-1.5" /> Add Plan
+                    </Button>
+                    <Button onClick={() => setActiveSection("vouchers")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                      <Ticket className="h-4 w-4 mr-1.5" /> Generate Code
+                    </Button>
+                    <Button onClick={() => setActiveSection("analytics")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                      <BarChart3 className="h-4 w-4 mr-1.5" /> View Reports
+                    </Button>
+                    <Button onClick={() => setActiveSection("setup")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                      <Settings className="h-4 w-4 mr-1.5" /> Configure
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
 
-          {/* Vouchers Tab */}
-          <TabsContent value="vouchers">
+              {/* Quick Stats Row */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Card className="bg-muted/30">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Activity className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold font-mono text-foreground">{activeSessions.length}</p>
+                      <p className="text-[10px] text-muted-foreground">Online Now</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-muted/30">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Key className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold font-mono text-foreground">{vouchers.filter(v => v.status === "active").length}</p>
+                      <p className="text-[10px] text-muted-foreground">Active Vouchers</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-muted/30">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Package className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold font-mono text-foreground">{packages.filter(p => p.is_active).length}</p>
+                      <p className="text-[10px] text-muted-foreground">Active Plans</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-muted/30">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Wifi className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold font-mono text-foreground">{sessions.length}</p>
+                      <p className="text-[10px] text-muted-foreground">Total Sessions</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+
+          {/* ANALYTICS */}
+          {activeSection === "analytics" && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+                  <CardContent className="p-4">
+                    <p className="text-[10px] text-muted-foreground font-mono uppercase">Total Revenue</p>
+                    <p className="text-2xl font-bold font-mono text-foreground mt-1">KES {revenueStats.total.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-[10px] text-muted-foreground font-mono uppercase">Today</p>
+                    <p className="text-2xl font-bold font-mono text-foreground mt-1">KES {revenueStats.todayRev.toLocaleString()}</p>
+                    <p className="text-[10px] text-primary font-mono">{revenueStats.todayCount} sales</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-[10px] text-muted-foreground font-mono uppercase">This Week</p>
+                    <p className="text-2xl font-bold font-mono text-foreground mt-1">KES {revenueStats.weekRev.toLocaleString()}</p>
+                    <p className="text-[10px] text-primary font-mono">{revenueStats.weekCount} sales</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-[10px] text-muted-foreground font-mono uppercase">This Month</p>
+                    <p className="text-2xl font-bold font-mono text-foreground mt-1">KES {revenueStats.monthRev.toLocaleString()}</p>
+                    <p className="text-[10px] text-primary font-mono">{revenueStats.monthCount} sales</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card className="lg:col-span-2">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="font-mono text-sm flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-primary" /> Revenue (Last 14 Days)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer config={chartConfig} className="h-[280px] w-full">
+                      <BarChart data={dailyChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(160, 10%, 18%)" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(150, 10%, 50%)" }} />
+                        <YAxis tick={{ fontSize: 10, fill: "hsl(150, 10%, 50%)" }} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="revenue" fill="hsl(145, 63%, 42%)" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="font-mono text-sm flex items-center gap-2">
+                      <Package className="h-4 w-4 text-primary" /> Package Breakdown
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {packageBreakdown.length === 0 ? (
+                      <div className="h-[280px] flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
+                    ) : (
+                      <div className="h-[220px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={packageBreakdown} dataKey="revenue" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                              {packageBreakdown.map((_, i) => (
+                                <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                    <div className="space-y-1.5 mt-2">
+                      {packageBreakdown.slice(0, 4).map((p, i) => (
+                        <div key={p.name} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                            <span className="text-muted-foreground font-mono">{p.name}</span>
+                          </div>
+                          <span className="font-mono text-foreground">KES {p.revenue.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+
+          {/* VOUCHERS */}
+          {activeSection === "vouchers" && (
             <div className="space-y-4">
-              {/* Generate Voucher */}
               <Card className="border-primary/20">
                 <CardHeader className="pb-3">
                   <CardTitle className="font-mono text-sm flex items-center gap-2">
@@ -563,7 +657,7 @@ const Admin = () => {
                       </SelectContent>
                     </Select>
                     <Input placeholder="Phone (optional)" value={genPhone} onChange={e => setGenPhone(e.target.value)} className="font-mono bg-muted/50 text-xs flex-1" />
-                    <Button onClick={generateVoucher} disabled={generating || !genPkgId} className="font-mono glow-primary text-xs shrink-0">
+                    <Button onClick={generateVoucher} disabled={generating || !genPkgId} className="font-mono text-xs shrink-0">
                       {generating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
                       Generate
                     </Button>
@@ -583,7 +677,6 @@ const Admin = () => {
                 </CardContent>
               </Card>
 
-              {/* Voucher Table */}
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
@@ -598,9 +691,9 @@ const Admin = () => {
                         <TableRow>
                           <TableHead className="font-mono text-xs">Code</TableHead>
                           <TableHead className="font-mono text-xs">Phone</TableHead>
-                          <TableHead className="font-mono text-xs">Package</TableHead>
-                          <TableHead className="font-mono text-xs">Receipt</TableHead>
-                          <TableHead className="font-mono text-xs">Created</TableHead>
+                          <TableHead className="text-xs">Package</TableHead>
+                          <TableHead className="font-mono text-[10px]">Receipt</TableHead>
+                          <TableHead className="text-[10px] text-muted-foreground">Created</TableHead>
                           <TableHead className="font-mono text-xs">Status</TableHead>
                           <TableHead className="font-mono text-xs">Actions</TableHead>
                         </TableRow>
@@ -638,10 +731,10 @@ const Admin = () => {
                 </CardContent>
               </Card>
             </div>
-          </TabsContent>
+          )}
 
-          {/* Sessions Tab */}
-          <TabsContent value="sessions">
+          {/* SESSIONS */}
+          {activeSection === "sessions" && (
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -656,7 +749,7 @@ const Admin = () => {
                       <TableHead className="font-mono text-xs">Code</TableHead>
                       <TableHead className="font-mono text-xs">Phone</TableHead>
                       <TableHead className="font-mono text-xs">Package</TableHead>
-                      <TableHead className="font-mono text-xs">Started</TableHead>
+                      <TableHead className="text-[10px] text-muted-foreground">Started</TableHead>
                       <TableHead className="font-mono text-xs">Time Left</TableHead>
                       <TableHead className="font-mono text-xs">Status</TableHead>
                     </TableRow>
@@ -682,10 +775,10 @@ const Admin = () => {
                 </Table>
               </CardContent>
             </Card>
-          </TabsContent>
+          )}
 
-          {/* Packages Tab */}
-          <TabsContent value="packages">
+          {/* PACKAGES */}
+          {activeSection === "packages" && (
             <div className="space-y-4">
               <Card className="border-primary/20">
                 <CardHeader className="pb-3">
@@ -724,7 +817,7 @@ const Admin = () => {
                       <Input placeholder="e.g. 5M/5M (optional)" value={newPkg.speed_limit} onChange={e => setNewPkg({ ...newPkg, speed_limit: e.target.value })} className="font-mono bg-muted/50 text-sm" />
                     </div>
                   </div>
-                  <Button onClick={addPackage} disabled={savingPkg || !newPkg.name} className="font-mono glow-primary text-xs">
+                  <Button onClick={addPackage} disabled={savingPkg || !newPkg.name} className="font-mono text-xs">
                     {savingPkg ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
                     Add Package
                   </Button>
@@ -754,10 +847,10 @@ const Admin = () => {
                 ))}
               </div>
             </div>
-          </TabsContent>
+          )}
 
-          {/* MikroTik Settings Tab */}
-          <TabsContent value="settings">
+          {/* SETUP */}
+          {activeSection === "setup" && (
             <div className="space-y-4">
               <Card>
                 <CardHeader className="pb-3">
@@ -785,7 +878,7 @@ const Admin = () => {
                       <Input value={routerForm.hotspot_interface} onChange={e => setRouterForm({ ...routerForm, hotspot_interface: e.target.value })} className="font-mono bg-muted/50 text-sm" />
                     </div>
                   </div>
-                  <Button onClick={saveRouterSettings} disabled={savingRouter} className="font-mono glow-primary text-xs">
+                  <Button onClick={saveRouterSettings} disabled={savingRouter} className="font-mono text-xs">
                     {savingRouter ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                     Save Settings
                   </Button>
@@ -800,7 +893,7 @@ const Admin = () => {
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
                     <div>
                       <p className="font-mono font-semibold text-xs">hotspot-setup.rsc</p>
-                      <p className="text-[10px] text-muted-foreground">Hotspot config with captive portal redirect</p>
+                      <p className="text-[10px] text-muted-foreground">Complete hotspot config with DHCP, NAT, RADIUS</p>
                     </div>
                     <Button variant="outline" size="sm" onClick={generateRscScript} className="font-mono text-xs">
                       <Download className="h-3.5 w-3.5 mr-1" /> Download
@@ -818,9 +911,9 @@ const Admin = () => {
                 </CardContent>
               </Card>
             </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 };
