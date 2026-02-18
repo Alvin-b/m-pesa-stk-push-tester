@@ -40,13 +40,10 @@ const Portal = () => {
   const [selectedPkg, setSelectedPkg] = useState<Package | null>(null);
   const [step, setStep] = useState<Step>("packages");
   const [phone, setPhone] = useState("");
-  const [loginCode, setLoginCode] = useState("");
-  const [mpesaCode, setMpesaCode] = useState("");
+  const [accessInput, setAccessInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mpesaLoading, setMpesaLoading] = useState(false);
   const [voucherCode, setVoucherCode] = useState("");
   const [error, setError] = useState("");
-  const [mpesaError, setMpesaError] = useState("");
   const [failureReason, setFailureReason] = useState("");
   const [copied, setCopied] = useState(false);
   const [pollCount, setPollCount] = useState(0);
@@ -57,11 +54,12 @@ const Portal = () => {
     });
   }, []);
 
-  const handleAccessCode = async () => {
+  const handleAccessInput = async () => {
     setLoading(true);
     setError("");
-    const code = loginCode.trim().toUpperCase();
+    const code = accessInput.trim().toUpperCase();
 
+    // Try as access code first (5-letter codes)
     const { data: voucher } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
@@ -76,15 +74,7 @@ const Portal = () => {
       return;
     }
 
-    setError("Invalid access code. Please check and try again.");
-    setLoading(false);
-  };
-
-  const handleMpesaCode = async () => {
-    setMpesaLoading(true);
-    setMpesaError("");
-    const code = mpesaCode.trim().toUpperCase();
-
+    // Try as M-Pesa receipt
     const { data: receipt } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
@@ -95,12 +85,12 @@ const Portal = () => {
     if (receipt) {
       setVoucherCode(receipt.code);
       setStep("success");
-      setMpesaLoading(false);
+      setLoading(false);
       return;
     }
 
-    setMpesaError("Transaction not found. Please check your M-Pesa code.");
-    setMpesaLoading(false);
+    setError("Code not found. Check your access code or M-Pesa transaction code.");
+    setLoading(false);
   };
 
   const handlePayment = async () => {
@@ -194,11 +184,9 @@ const Portal = () => {
   const resetToPackages = () => {
     setStep("packages");
     setVoucherCode("");
-    setLoginCode("");
-    setMpesaCode("");
+    setAccessInput("");
     setPhone("");
     setError("");
-    setMpesaError("");
     setFailureReason("");
     setPollCount(0);
   };
@@ -250,73 +238,39 @@ const Portal = () => {
 
         {/* ── Packages Step ── */}
         {step === "packages" && (
-          <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-6 mt-4">
-            {/* Left – Code Entry */}
-            <div className="lg:col-span-2">
-              <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/5">
-                <CardContent className="p-6 space-y-6">
-                  <div className="space-y-3">
-                    <h2 className="text-lg font-semibold text-foreground">Already have a code?</h2>
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-muted-foreground font-mono">Access Code</label>
-                      <Input
-                        placeholder="Enter your access code"
-                        value={loginCode}
-                        onChange={(e) => setLoginCode(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAccessCode()}
-                        className="font-mono bg-secondary/50 h-11 border-border focus:border-primary"
-                      />
-                    </div>
-                    <Button
-                      onClick={handleAccessCode}
-                      disabled={!loginCode.trim() || loading}
-                      className="w-full font-semibold h-11 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md"
-                    >
-                      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
-                      Connect with Access Code
-                    </Button>
-                    {error && (
-                      <p className="text-destructive text-xs font-mono bg-destructive/10 rounded-lg px-3 py-2">{error}</p>
-                    )}
+          <div className="max-w-2xl mx-auto space-y-5 mt-2">
+            {/* Unified code input at top */}
+            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/5">
+              <CardContent className="p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Already have a code? Enter it below to connect instantly</p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Access code or M-Pesa transaction code (e.g. ABCDE or QGH7X0KL2P)"
+                      value={accessInput}
+                      onChange={(e) => setAccessInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAccessInput()}
+                      className="font-mono pl-10 bg-secondary/50 h-11 border-border text-sm"
+                    />
                   </div>
+                  <Button
+                    onClick={handleAccessInput}
+                    disabled={!accessInput.trim() || loading}
+                    className="h-11 px-5 font-semibold shrink-0"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
+                  </Button>
+                </div>
+                {error && (
+                  <p className="text-destructive text-xs font-mono bg-destructive/10 rounded-lg px-3 py-2 mt-2">{error}</p>
+                )}
+              </CardContent>
+            </Card>
 
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 h-px bg-border" />
-                    <span className="text-xs text-muted-foreground font-mono">OR</span>
-                    <div className="flex-1 h-px bg-border" />
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-muted-foreground font-mono">M-Pesa Transaction Code</label>
-                      <Input
-                        placeholder="e.g. SFJ9X0KL2P"
-                        value={mpesaCode}
-                        onChange={(e) => setMpesaCode(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleMpesaCode()}
-                        className="font-mono bg-secondary/50 h-11 border-border focus:border-primary"
-                      />
-                    </div>
-                    <Button
-                      onClick={handleMpesaCode}
-                      disabled={!mpesaCode.trim() || mpesaLoading}
-                      variant="outline"
-                      className="w-full font-semibold h-11 border-primary/30 hover:bg-primary/5 text-primary"
-                    >
-                      {mpesaLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Smartphone className="mr-2 h-4 w-4" />}
-                      Verify M-Pesa Code
-                    </Button>
-                    {mpesaError && (
-                      <p className="text-destructive text-xs font-mono bg-destructive/10 rounded-lg px-3 py-2">{mpesaError}</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Right – Plans */}
-            <div className="lg:col-span-3 space-y-3">
-              <h2 className="text-lg font-semibold text-foreground px-1">Choose a Plan</h2>
+            {/* Plans */}
+            <div>
+              <h2 className="text-base font-semibold text-foreground px-1 mb-3">Choose a Plan to Get Started</h2>
               <div className="space-y-3">
                 {packages.map((pkg, idx) => {
                   const gradients = [
@@ -339,9 +293,8 @@ const Portal = () => {
                     >
                       <CardContent className="p-0">
                         <div className="flex items-stretch">
-                          {/* Color strip */}
                           <div className={`w-1.5 bg-gradient-to-b ${gradient} shrink-0`} />
-                          <div className="flex-1 p-5">
+                          <div className="flex-1 p-4">
                             <div className="flex items-start justify-between">
                               <div>
                                 <h3 className="font-bold text-foreground text-base group-hover:text-primary transition-colors capitalize">
@@ -358,7 +311,7 @@ const Portal = () => {
                                 <p className="text-[11px] text-muted-foreground mt-0.5">one-time</p>
                               </div>
                             </div>
-                            <div className="flex flex-wrap gap-3 mt-3">
+                            <div className="flex flex-wrap gap-3 mt-2">
                               {getFeatures(pkg).map((feature, i) => (
                                 <div key={i} className="flex items-center gap-1.5">
                                   <Check className="h-3.5 w-3.5 text-primary shrink-0" />

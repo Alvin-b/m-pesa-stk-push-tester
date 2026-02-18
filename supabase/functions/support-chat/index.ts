@@ -10,7 +10,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { messages, context } = await req.json();
+    const { messages } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("AI not configured");
 
@@ -18,105 +18,98 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Gather system context for the AI
-    let systemContext = "";
-
-    // If user provides a voucher code or phone or receipt, look it up
     const lastUserMsg = messages[messages.length - 1]?.content || "";
-    
-    // Extract potential codes (5-letter uppercase, mpesa receipts, phone numbers)
-    const codeMatch = lastUserMsg.match(/\b([A-Z]{5,10})\b/);
-    const phoneMatch = lastUserMsg.match(/(?:0|\+?254)\d{9}/);
-    const receiptMatch = lastUserMsg.match(/\b([A-Z0-9]{10,})\b/);
 
-    if (codeMatch) {
-      const code = codeMatch[1];
-      const { data: voucher } = await supabase
+    // ── Extract identifiers from the latest message ──
+    const codeMatch = lastUserMsg.match(/\b([A-Z]{5})\b/);
+    const receiptMatch = lastUserMsg.match(/\b([A-Z]{2}[A-Z0-9]{8,})\b/);
+    const phoneMatch = lastUserMsg.match(/(?:0|\+?254)\d{9}/);
+
+    let systemContext = "";
+    let foundVoucher: any = null;
+
+    // ── Look up voucher by code or receipt ──
+    const lookupCode = codeMatch?.[1] || receiptMatch?.[1];
+    if (lookupCode) {
+      const { data: v } = await supabase
         .from("vouchers")
         .select("*, packages(*)")
-        .or(`code.eq.${code},mpesa_receipt.eq.${code}`)
+        .or(`code.eq.${lookupCode},mpesa_receipt.eq.${lookupCode}`)
         .maybeSingle();
-      
-      if (voucher) {
-        systemContext += `\n\nVOUCHER FOUND: Code=${voucher.code}, Status=${voucher.status}, Package=${(voucher as any).packages?.name || 'unknown'}, Price=KES ${(voucher as any).packages?.price || '?'}, Phone=${voucher.phone_number}, Created=${voucher.created_at}, MpesaReceipt=${voucher.mpesa_receipt || 'none'}`;
-        
-        // Check sessions for this voucher
-        const { data: sessions } = await supabase
-          .from("sessions")
-          .select("*")
-          .eq("voucher_id", voucher.id)
-          .order("started_at", { ascending: false })
-          .limit(3);
-        
-        if (sessions && sessions.length > 0) {
-          systemContext += `\nSESSIONS: ${JSON.stringify(sessions.map(s => ({ active: s.is_active, started: s.started_at, expires: s.expires_at, ip: s.ip_address, mac: s.mac_address })))}`;
-        } else {
-          systemContext += `\nNO SESSIONS found for this voucher.`;
-        }
-
-        // Check radcheck entry
-        const { data: radcheck } = await supabase
-          .from("radcheck")
-          .select("*")
-          .eq("username", voucher.code);
-        
-        systemContext += radcheck && radcheck.length > 0
-          ? `\nRADIUS CREDENTIALS: Active (found in radcheck)`
-          : `\nRADIUS CREDENTIALS: MISSING from radcheck - user cannot authenticate!`;
-      }
+      foundVoucher = v;
     }
 
-    if (phoneMatch && !systemContext.includes("VOUCHER FOUND")) {
+    // ── Look up by phone if no voucher yet ──
+    if (!foundVoucher && phoneMatch) {
       const phone = phoneMatch[0].replace(/^0/, "254").replace(/^\+/, "");
-      const { data: vouchers } = await supabase
+      const { data: vlist } = await supabase
         .from("vouchers")
-        .select("code, status, created_at, mpesa_receipt, packages(name, price)")
+        .select("*, packages(*)")
         .eq("phone_number", phone)
         .order("created_at", { ascending: false })
-        .limit(5);
-      
-      if (vouchers && vouchers.length > 0) {
-        systemContext += `\n\nVOUCHERS FOR PHONE ${phone}: ${JSON.stringify(vouchers)}`;
-      }
+        .limit(1);
+      foundVoucher = vlist?.[0] || null;
     }
 
-    // Available packages info
+    if (foundVoucher) {
+      const pkg = (foundVoucher as any).packages;
+      systemContext += `VOUCHER: code=${foundVoucher.code}, status=${foundVoucher.status}, package="${pkg?.name}" KES ${pkg?.price}, phone=${foundVoucher.phone_number}, created=${foundVoucher.created_at}, receipt=${foundVoucher.mpesa_receipt || "none"}`;
+
+      // Sessions
+      const { data: sessions } = await supabase
+        .from("sessions")
+        .select("is_active,started_at,expires_at,ip_address,mac_address")
+        .eq("voucher_id", foundVoucher.id)
+        .order("started_at", { ascending: false })
+        .limit(3);
+      systemContext += sessions?.length
+        ? `\nSESSIONS: ${JSON.stringify(sessions)}`
+        : `\nSESSIONS: none`;
+
+      // RADIUS
+      const { data: radcheck } = await supabase
+        .from("radcheck")
+        .select("username")
+        .eq("username", foundVoucher.code)
+        .maybeSingle();
+      systemContext += radcheck
+        ? `\nRADIUS: credentials present ✓`
+        : `\nRADIUS: MISSING – user cannot authenticate`;
+    }
+
+    // ── Packages list ──
     const { data: packages } = await supabase
       .from("packages")
-      .select("name, price, duration_minutes, speed_limit")
+      .select("name,price,duration_minutes,speed_limit")
       .eq("is_active", true)
       .order("price");
-    
-    if (packages) {
-      systemContext += `\n\nAVAILABLE PACKAGES: ${JSON.stringify(packages)}`;
+    if (packages?.length) {
+      systemContext += `\nPACKAGES: ${packages.map(p => `${p.name} KES${p.price} ${p.duration_minutes}min ${p.speed_limit || ""}`).join(" | ")}`;
     }
 
-    const systemPrompt = `You are a friendly WiFi support assistant for a captive portal hotspot system. You help customers who have purchased WiFi access and are experiencing issues.
+    // ── System prompt: terse, action-oriented, agent with powers ──
+    const systemPrompt = `You are a WiFi hotspot support agent with full backend access. Be extremely concise — diagnose and act, no filler.
 
-CAPABILITIES:
-- You can look up voucher codes, M-Pesa receipts, and phone numbers to check transaction status
-- You can see if a user's RADIUS credentials exist (needed to connect)
-- You can see session history (active connections, expiry times)
-- You can tell users their voucher code if they lost it (by phone number lookup)
-- You can explain available WiFi packages and pricing
+CAPABILITIES YOU HAVE:
+- Read vouchers, sessions, RADIUS credentials, packages
+- Identify root cause instantly from system data
+- If RADIUS credentials are missing → tell user to re-enter their code on the portal login page, the system will re-provision it automatically on next use
+- If voucher is expired → confirm and advise to buy new plan
+- If user paid but no voucher → check receipt, confirm if payment was received, advise to contact admin with the M-Pesa receipt
+- Tell user their voucher code if they forgot it (after verifying phone number)
+- Explain packages and pricing
 
-IMPORTANT RULES:
-- NEVER give free internet access or create vouchers
-- NEVER modify any system data - you are read-only
-- If a user's voucher is active but their RADIUS credentials are missing, tell them to contact admin or try re-entering their code
-- If a user paid but no voucher exists, advise them to check with admin or try their M-Pesa receipt code
-- Be concise, helpful, and friendly
-- Use simple language, many users may not be tech-savvy
-- If you find their voucher code, remind them: "Use this code as both your username AND password to connect"
+RULES:
+- Never create vouchers or modify data
+- Never give free access
+- Be direct: state the problem in one sentence, give the fix in one sentence
+- No greetings unless it's the first message
+- If you have system data, use it immediately — don't ask for info you already have
 
-TROUBLESHOOTING STEPS:
-1. Ask for their voucher code, M-Pesa receipt, or phone number
-2. Look up their transaction
-3. Check if RADIUS credentials exist
-4. Check session status (active/expired)
-5. Provide clear next steps
+FORMAT: Short. Bullet points if listing steps. No long paragraphs.
 
-SYSTEM DATA:${systemContext}`;
+SYSTEM DATA:
+${systemContext || "No identifiers provided yet. Ask for their voucher code, M-Pesa receipt, or phone number."}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -125,7 +118,7 @@ SYSTEM DATA:${systemContext}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           ...messages,
@@ -136,14 +129,8 @@ SYSTEM DATA:${systemContext}`;
 
     if (!response.ok) {
       if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Too many requests. Please try again in a moment." }), {
+        return new Response(JSON.stringify({ error: "Too many requests. Try again in a moment." }), {
           status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Service temporarily unavailable." }), {
-          status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
