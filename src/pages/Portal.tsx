@@ -3,7 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { Wifi, Loader2, CheckCircle2, Zap, KeyRound, ArrowLeft, Signal, Clock, CalendarDays, CalendarRange, Check } from "lucide-react";
+import {
+  Wifi, Loader2, CheckCircle2, XCircle, Zap, KeyRound,
+  ArrowLeft, Check, Smartphone, Copy, RefreshCw
+} from "lucide-react";
 import SupportChat from "@/components/SupportChat";
 import networkBg from "@/assets/network-bg.png";
 
@@ -16,7 +19,21 @@ interface Package {
   speed_limit: string | null;
 }
 
-type Step = "packages" | "payment" | "success";
+// These result codes mean "still processing" – keep polling
+const PROCESSING_CODES = new Set([4999, "4999"]);
+
+// Terminal failure codes
+const FAILURE_CODES: Record<string, string> = {
+  "1": "Insufficient funds in your M-Pesa account.",
+  "1032": "Transaction cancelled. You dismissed the M-Pesa prompt.",
+  "1037": "Your phone was unreachable. Please try again.",
+  "1025": "M-Pesa server error. Please try again.",
+  "1019": "Transaction expired. Please try again.",
+  "2001": "Wrong M-Pesa PIN entered.",
+  "1001": "Unable to process your request. Please try again.",
+};
+
+type Step = "packages" | "payment" | "waiting" | "success" | "failed";
 
 const Portal = () => {
   const [packages, setPackages] = useState<Package[]>([]);
@@ -30,6 +47,9 @@ const Portal = () => {
   const [voucherCode, setVoucherCode] = useState("");
   const [error, setError] = useState("");
   const [mpesaError, setMpesaError] = useState("");
+  const [failureReason, setFailureReason] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [pollCount, setPollCount] = useState(0);
 
   useEffect(() => {
     supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
@@ -106,15 +126,30 @@ const Portal = () => {
         return;
       }
 
+      // Switch to animated waiting screen
+      setStep("waiting");
+      setLoading(false);
+      setPollCount(0);
+
       let attempts = 0;
-      const maxAttempts = 30;
+      const maxAttempts = 40; // ~2 minutes
       const poll = setInterval(async () => {
         attempts++;
+        setPollCount(attempts);
+
         const { data: queryData } = await supabase.functions.invoke("daraja-stk-query", {
           body: { checkoutRequestId },
         });
 
-        if (queryData?.success) {
+        const resultCode = queryData?.resultCode;
+
+        // Still processing – keep waiting
+        if (PROCESSING_CODES.has(resultCode)) {
+          return;
+        }
+
+        // Payment successful
+        if (queryData?.success === true || resultCode === 0 || resultCode === "0") {
           clearInterval(poll);
           const { data: voucher } = await supabase
             .from("vouchers")
@@ -124,11 +159,24 @@ const Portal = () => {
 
           setVoucherCode(voucher?.code || "CHECK ADMIN");
           setStep("success");
-          setLoading(false);
-        } else if (attempts >= maxAttempts || (queryData?.resultCode && queryData.resultCode !== 0)) {
+          return;
+        }
+
+        // Known terminal failure
+        if (resultCode !== undefined && !PROCESSING_CODES.has(resultCode)) {
+          const codeStr = String(resultCode);
+          const reason = FAILURE_CODES[codeStr] || queryData?.meaning || "Payment was not completed. Please try again.";
           clearInterval(poll);
-          setError(queryData?.meaning || "Payment was not completed");
-          setLoading(false);
+          setFailureReason(reason);
+          setStep("failed");
+          return;
+        }
+
+        // Timeout
+        if (attempts >= maxAttempts) {
+          clearInterval(poll);
+          setFailureReason("Payment timed out. If money was deducted, please contact support.");
+          setStep("failed");
         }
       }, 3000);
     } catch (err: any) {
@@ -137,38 +185,59 @@ const Portal = () => {
     }
   };
 
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(voucherCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const resetToPackages = () => {
+    setStep("packages");
+    setVoucherCode("");
+    setLoginCode("");
+    setMpesaCode("");
+    setPhone("");
+    setError("");
+    setMpesaError("");
+    setFailureReason("");
+    setPollCount(0);
+  };
+
   const formatDuration = (minutes: number) => {
-    if (minutes >= 43200) return `${Math.floor(minutes / 43200)} Month${minutes >= 86400 ? 's' : ''}`;
-    if (minutes >= 10080) return `${Math.floor(minutes / 10080)} Week${minutes >= 20160 ? 's' : ''}`;
-    if (minutes >= 1440) return `${Math.floor(minutes / 1440)} Day${minutes >= 2880 ? 's' : ''}`;
-    if (minutes >= 60) return `${Math.floor(minutes / 60)} Hour${minutes >= 120 ? 's' : ''}`;
+    if (minutes >= 43200) return `${Math.floor(minutes / 43200)} Month${Math.floor(minutes / 43200) > 1 ? 's' : ''}`;
+    if (minutes >= 10080) return `${Math.floor(minutes / 10080)} Week${Math.floor(minutes / 10080) > 1 ? 's' : ''}`;
+    if (minutes >= 1440) return `${Math.floor(minutes / 1440)} Day${Math.floor(minutes / 1440) > 1 ? 's' : ''}`;
+    if (minutes >= 60) return `${Math.floor(minutes / 60)} Hour${Math.floor(minutes / 60) > 1 ? 's' : ''}`;
     return `${minutes} Min`;
   };
 
   const getFeatures = (pkg: Package) => {
     const features = [`${formatDuration(pkg.duration_minutes)} Access`];
-    if (pkg.speed_limit) {
-      features.push(`Speed: ${pkg.speed_limit}`);
-    } else {
-      features.push("High Speed Internet");
-    }
+    if (pkg.speed_limit) features.push(`Speed: ${pkg.speed_limit}`);
+    else features.push("High Speed Internet");
     features.push("Multiple Device Support");
     return features;
   };
 
   return (
     <div
-      className="min-h-screen bg-background flex flex-col relative"
-      style={{ backgroundImage: `url(${networkBg})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed" }}
+      className="min-h-screen flex flex-col relative"
+      style={{
+        backgroundImage: `url(${networkBg})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
+      }}
     >
-      <div className="absolute inset-0 bg-background/85 backdrop-blur-sm" />
-      
+      {/* Light overlay */}
+      <div className="absolute inset-0 bg-white/80 backdrop-blur-sm" />
+
       {/* Header */}
       <div className="relative z-10 text-center pt-8 pb-4 px-4">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-3">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 mb-3 shadow-lg">
           <Wifi className="h-7 w-7 text-primary" />
         </div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-mono text-foreground">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
           WiFi Access Portal
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
@@ -178,13 +247,14 @@ const Portal = () => {
 
       {/* Main Content */}
       <div className="flex-1 relative z-10 px-4 pb-8">
+
+        {/* ── Packages Step ── */}
         {step === "packages" && (
           <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-6 mt-4">
-            {/* Left Column - Code Entry */}
+            {/* Left – Code Entry */}
             <div className="lg:col-span-2">
-              <Card className="border-border bg-card/80 backdrop-blur">
+              <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/5">
                 <CardContent className="p-6 space-y-6">
-                  {/* Access Code Section */}
                   <div className="space-y-3">
                     <h2 className="text-lg font-semibold text-foreground">Already have a code?</h2>
                     <div className="space-y-2">
@@ -193,151 +263,195 @@ const Portal = () => {
                         placeholder="Enter your access code"
                         value={loginCode}
                         onChange={(e) => setLoginCode(e.target.value)}
-                        className="font-mono bg-muted/50 h-11"
+                        onKeyDown={(e) => e.key === "Enter" && handleAccessCode()}
+                        className="font-mono bg-secondary/50 h-11 border-border focus:border-primary"
                       />
                     </div>
                     <Button
                       onClick={handleAccessCode}
                       disabled={!loginCode.trim() || loading}
-                      className="w-full font-mono font-semibold h-11"
+                      className="w-full font-semibold h-11 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md"
                     >
                       {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
                       Connect with Access Code
                     </Button>
-                    {error && step === "packages" && (
-                      <p className="text-destructive text-xs font-mono">{error}</p>
+                    {error && (
+                      <p className="text-destructive text-xs font-mono bg-destructive/10 rounded-lg px-3 py-2">{error}</p>
                     )}
                   </div>
 
-                  {/* Divider */}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-px bg-border" />
                     <span className="text-xs text-muted-foreground font-mono">OR</span>
                     <div className="flex-1 h-px bg-border" />
                   </div>
 
-                  {/* M-Pesa Transaction Code */}
                   <div className="space-y-3">
                     <div className="space-y-2">
                       <label className="text-xs font-medium text-muted-foreground font-mono">M-Pesa Transaction Code</label>
                       <Input
-                        placeholder="Enter M-Pesa transaction code"
+                        placeholder="e.g. SFJ9X0KL2P"
                         value={mpesaCode}
                         onChange={(e) => setMpesaCode(e.target.value)}
-                        className="font-mono bg-muted/50 h-11"
+                        onKeyDown={(e) => e.key === "Enter" && handleMpesaCode()}
+                        className="font-mono bg-secondary/50 h-11 border-border focus:border-primary"
                       />
                     </div>
                     <Button
                       onClick={handleMpesaCode}
                       disabled={!mpesaCode.trim() || mpesaLoading}
                       variant="outline"
-                      className="w-full font-mono font-semibold h-11 border-primary/30 hover:bg-primary/10"
+                      className="w-full font-semibold h-11 border-primary/30 hover:bg-primary/5 text-primary"
                     >
-                      {mpesaLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Verify Transaction
+                      {mpesaLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Smartphone className="mr-2 h-4 w-4" />}
+                      Verify M-Pesa Code
                     </Button>
                     {mpesaError && (
-                      <p className="text-destructive text-xs font-mono">{mpesaError}</p>
+                      <p className="text-destructive text-xs font-mono bg-destructive/10 rounded-lg px-3 py-2">{mpesaError}</p>
                     )}
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Right Column - Plans */}
+            {/* Right – Plans */}
             <div className="lg:col-span-3 space-y-3">
-              <h2 className="text-lg font-semibold text-primary font-mono px-1">Choose a Plan</h2>
+              <h2 className="text-lg font-semibold text-foreground px-1">Choose a Plan</h2>
               <div className="space-y-3">
-                {packages.map((pkg) => (
-                  <Card
-                    key={pkg.id}
-                    className="cursor-pointer border-border hover:border-primary/40 bg-card/80 backdrop-blur transition-all duration-200 group"
-                    onClick={() => {
-                      setSelectedPkg(pkg);
-                      setStep("payment");
-                      setError("");
-                    }}
-                  >
-                    <CardContent className="p-5">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="font-mono font-bold text-foreground text-base group-hover:text-primary transition-colors">
-                            {pkg.name}
-                          </h3>
-                          <span className="inline-block mt-1 text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                            {formatDuration(pkg.duration_minutes)}
-                          </span>
-                        </div>
-                        <p className="font-mono font-bold text-foreground text-xl">
-                          KES {pkg.price.toFixed(2)}
-                        </p>
-                      </div>
-                      <div className="space-y-2 mt-4">
-                        {getFeatures(pkg).map((feature, i) => (
-                          <div key={i} className="flex items-center gap-2.5">
-                            <Check className="h-4 w-4 text-primary shrink-0" />
-                            <span className="text-sm text-muted-foreground">{feature}</span>
+                {packages.map((pkg, idx) => {
+                  const gradients = [
+                    "from-blue-500 to-indigo-600",
+                    "from-violet-500 to-purple-600",
+                    "from-emerald-500 to-teal-600",
+                    "from-orange-500 to-amber-600",
+                    "from-rose-500 to-pink-600",
+                  ];
+                  const gradient = gradients[idx % gradients.length];
+                  return (
+                    <Card
+                      key={pkg.id}
+                      className="cursor-pointer border-border hover:border-primary/40 bg-white/90 backdrop-blur transition-all duration-200 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 group overflow-hidden"
+                      onClick={() => {
+                        setSelectedPkg(pkg);
+                        setStep("payment");
+                        setError("");
+                      }}
+                    >
+                      <CardContent className="p-0">
+                        <div className="flex items-stretch">
+                          {/* Color strip */}
+                          <div className={`w-1.5 bg-gradient-to-b ${gradient} shrink-0`} />
+                          <div className="flex-1 p-5">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h3 className="font-bold text-foreground text-base group-hover:text-primary transition-colors capitalize">
+                                  {pkg.name}
+                                </h3>
+                                <span className={`inline-block mt-1 text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-gradient-to-r ${gradient} text-white font-semibold`}>
+                                  {formatDuration(pkg.duration_minutes)}
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-bold text-foreground text-xl">
+                                  KES {pkg.price % 1 === 0 ? pkg.price.toFixed(0) : pkg.price.toFixed(2)}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">one-time</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-3 mt-3">
+                              {getFeatures(pkg).map((feature, i) => (
+                                <div key={i} className="flex items-center gap-1.5">
+                                  <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  <span className="text-xs text-muted-foreground">{feature}</span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                          <div className="flex items-center pr-4">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                              <ArrowLeft className="h-4 w-4 text-primary rotate-180" />
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           </div>
         )}
 
-        {/* Payment Step */}
+        {/* ── Payment Step ── */}
         {step === "payment" && selectedPkg && (
           <div className="max-w-md mx-auto mt-4">
-            <Card className="border-primary/20 bg-card/80 backdrop-blur">
+            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/10">
               <CardContent className="p-6 space-y-5">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                    <Zap className="h-6 w-6 text-primary" />
+                {/* Package summary */}
+                <div className="rounded-xl bg-primary/5 border border-primary/15 p-4 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-md">
+                    <Zap className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="font-mono font-bold text-foreground text-lg">Pay with M-Pesa</p>
+                    <p className="font-bold text-foreground capitalize">{selectedPkg.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {selectedPkg.name} — <span className="text-primary font-semibold">KES {selectedPkg.price}</span>
+                      {formatDuration(selectedPkg.duration_minutes)} ·{" "}
+                      <span className="text-primary font-bold text-base">KES {selectedPkg.price}</span>
                     </p>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground font-mono">
+                  <label className="text-sm font-medium text-foreground">
                     Safaricom Phone Number
                   </label>
-                  <Input
-                    type="tel"
-                    placeholder="0712345678"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="font-mono bg-muted/50 h-12 text-base"
-                  />
+                  <div className="relative">
+                    <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="tel"
+                      placeholder="0712 345 678"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handlePayment()}
+                      className="font-mono pl-10 bg-secondary/50 h-12 text-base border-border focus:border-primary"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    You'll receive an M-Pesa prompt on this number
+                  </p>
                 </div>
-                {error && <p className="text-destructive text-xs font-mono">{error}</p>}
+
+                {error && (
+                  <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                    <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                    <p className="text-destructive text-sm">{error}</p>
+                  </div>
+                )}
+
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
                     onClick={() => { setStep("packages"); setError(""); }}
-                    className="font-mono"
+                    className="font-mono border-border hover:bg-secondary/80"
                   >
                     <ArrowLeft className="h-4 w-4 mr-1" />
                     Back
                   </Button>
                   <Button
                     onClick={handlePayment}
-                    disabled={loading || !phone}
-                    className="flex-1 font-mono font-semibold h-12 text-base"
+                    disabled={loading || !phone.trim()}
+                    className="flex-1 font-semibold h-12 text-base bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg shadow-primary/20"
                   >
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
+                        Sending prompt…
                       </>
                     ) : (
-                      `Pay KES ${selectedPkg.price}`
+                      <>
+                        <Smartphone className="mr-2 h-4 w-4" />
+                        Pay KES {selectedPkg.price}
+                      </>
                     )}
                   </Button>
                 </div>
@@ -346,48 +460,160 @@ const Portal = () => {
           </div>
         )}
 
-        {/* Success */}
+        {/* ── Waiting / Processing Step ── */}
+        {step === "waiting" && (
+          <div className="max-w-md mx-auto mt-4">
+            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/10">
+              <CardContent className="py-12 text-center space-y-6">
+                {/* Pulsing rings animation */}
+                <div className="relative flex items-center justify-center mx-auto w-28 h-28">
+                  <div className="absolute w-28 h-28 rounded-full bg-primary/10 animate-ping" style={{ animationDuration: "2s" }} />
+                  <div className="absolute w-20 h-20 rounded-full bg-primary/15 animate-ping" style={{ animationDuration: "2s", animationDelay: "0.3s" }} />
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+                    <Smartphone className="h-7 w-7 text-white" />
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Waiting for Payment</h2>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    Check your phone and enter your M-Pesa PIN to complete the payment
+                  </p>
+                </div>
+
+                {/* Steps */}
+                <div className="bg-secondary/50 rounded-xl p-4 text-left space-y-3">
+                  {[
+                    { label: "STK push sent to your phone", done: true },
+                    { label: "Enter your M-Pesa PIN when prompted", done: false },
+                    { label: "Access code will appear automatically", done: false },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${item.done ? "bg-primary text-primary-foreground" : "bg-muted border-2 border-border"}`}>
+                        {item.done ? <Check className="h-3.5 w-3.5" /> : <span className="text-xs text-muted-foreground font-bold">{i + 1}</span>}
+                      </div>
+                      <span className={`text-sm ${item.done ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  Checking payment status
+                  {pollCount > 0 && <span className="opacity-60">({pollCount * 3}s)</span>}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ── Success Step ── */}
         {step === "success" && (
           <div className="max-w-md mx-auto mt-4">
-            <Card className="border-primary/40 bg-card/80 backdrop-blur">
+            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/10 overflow-hidden">
+              {/* Gradient top bar */}
+              <div className="h-2 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500" />
               <CardContent className="py-10 text-center space-y-5">
-                <div className="w-16 h-16 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="h-8 w-8 text-primary" />
+                {/* Success icon with animated ring */}
+                <div className="relative flex items-center justify-center mx-auto w-20 h-20">
+                  <div className="absolute w-20 h-20 rounded-full bg-emerald-100 animate-[scale-in_0.5s_ease-out]" />
+                  <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-200 animate-[scale-in_0.4s_ease-out]">
+                    <CheckCircle2 className="h-8 w-8 text-white" />
+                  </div>
                 </div>
+
                 <div>
-                  <h2 className="text-xl font-bold font-mono text-foreground">You're Connected!</h2>
-                  <p className="text-muted-foreground text-sm mt-1">Use this code to login to the WiFi</p>
+                  <h2 className="text-2xl font-bold text-foreground">Payment Successful! 🎉</h2>
+                  <p className="text-muted-foreground text-sm mt-1">You're all set — use the code below to connect</p>
                 </div>
-                <div className="bg-muted rounded-2xl p-5 border border-border">
+
+                {/* Voucher code box */}
+                <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-2xl p-5 border-2 border-primary/20">
+                  <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Your Access Code</p>
                   <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">
                     {voucherCode}
                   </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyCode}
+                    className="mt-3 text-xs text-muted-foreground hover:text-primary gap-1.5"
+                  >
+                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied ? "Copied!" : "Copy code"}
+                  </Button>
                 </div>
-                <p className="text-xs text-muted-foreground font-mono">
-                  Enter this code as both username and password
-                </p>
+
+                {/* Instructions */}
+                <div className="bg-secondary/50 rounded-xl p-4 text-left">
+                  <p className="text-sm font-semibold text-foreground mb-2">How to connect:</p>
+                  <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                    <li>Select the WiFi network</li>
+                    <li>Enter the code above as your <strong>username</strong></li>
+                    <li>Enter the same code as your <strong>password</strong></li>
+                    <li>Click Connect / Login</li>
+                  </ol>
+                </div>
+
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    setStep("packages");
-                    setVoucherCode("");
-                    setLoginCode("");
-                    setMpesaCode("");
-                    setPhone("");
-                    setError("");
-                    setMpesaError("");
-                  }}
-                  className="font-mono"
+                  onClick={resetToPackages}
+                  className="w-full border-border hover:bg-secondary/80"
                 >
+                  <RefreshCw className="h-4 w-4 mr-2" />
                   Buy Another Package
                 </Button>
               </CardContent>
             </Card>
           </div>
         )}
+
+        {/* ── Failed Step ── */}
+        {step === "failed" && (
+          <div className="max-w-md mx-auto mt-4">
+            <Card className="border-border bg-white/90 backdrop-blur shadow-xl overflow-hidden">
+              {/* Red top bar */}
+              <div className="h-2 bg-gradient-to-r from-rose-400 via-red-500 to-orange-400" />
+              <CardContent className="py-10 text-center space-y-5">
+                <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mx-auto">
+                  <XCircle className="h-8 w-8 text-rose-500" />
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Payment Failed</h2>
+                  <p className="text-muted-foreground text-sm mt-2 max-w-xs mx-auto">
+                    {failureReason}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    onClick={() => {
+                      setStep("payment");
+                      setFailureReason("");
+                    }}
+                    className="flex-1 bg-gradient-to-r from-primary to-accent text-white hover:opacity-90"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Try Again
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={resetToPackages}
+                    className="flex-1 border-border"
+                  >
+                    Change Package
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
-      <p className="relative z-10 text-center text-[10px] text-muted-foreground font-mono pb-4">
+      <p className="relative z-10 text-center text-[10px] text-muted-foreground pb-4">
         Powered by M-Pesa · Daraja API
       </p>
       <div className="relative z-10">
