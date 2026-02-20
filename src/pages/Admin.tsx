@@ -105,7 +105,8 @@ const Admin = () => {
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/admin/login");
-  }, [authLoading, user, navigate]);
+    if (!authLoading && user && !isAdmin) navigate("/admin/login");
+  }, [authLoading, user, isAdmin, navigate]);
 
   useEffect(() => {
     if (user) loadData();
@@ -584,9 +585,9 @@ const Admin = () => {
                   <CardContent>
                     <ChartContainer config={chartConfig} className="h-[280px] w-full">
                       <BarChart data={dailyChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(160, 10%, 18%)" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(150, 10%, 50%)" }} />
-                        <YAxis tick={{ fontSize: 10, fill: "hsl(150, 10%, 50%)" }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 32%, 91%)" />
+                         <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(215, 16%, 47%)" }} />
+                         <YAxis tick={{ fontSize: 10, fill: "hsl(215, 16%, 47%)" }} />
                         <ChartTooltip content={<ChartTooltipContent />} />
                         <Bar dataKey="revenue" fill="hsl(145, 63%, 42%)" radius={[4, 4, 0, 0]} />
                       </BarChart>

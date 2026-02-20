@@ -62,6 +62,61 @@ async function streamChat({
   onDone();
 }
 
+/** Simple markdown-to-JSX: bold, bullets, numbered lists */
+function renderMarkdown(text: string) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  lines.forEach((line, i) => {
+    // Bullet points
+    const bulletMatch = line.match(/^[\s]*[-*•]\s+(.*)/);
+    const numMatch = line.match(/^[\s]*(\d+)\.\s+(.*)/);
+
+    let content = bulletMatch ? bulletMatch[1] : numMatch ? numMatch[2] : line;
+
+    // Bold **text** or *text*
+    const parts: React.ReactNode[] = [];
+    const boldRegex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+    let lastIdx = 0;
+    let match;
+    while ((match = boldRegex.exec(content)) !== null) {
+      if (match.index > lastIdx) {
+        parts.push(content.slice(lastIdx, match.index));
+      }
+      parts.push(
+        <strong key={`${i}-${match.index}`} className="font-semibold">
+          {match[1] || match[2]}
+        </strong>
+      );
+      lastIdx = match.index + match[0].length;
+    }
+    if (lastIdx < content.length) parts.push(content.slice(lastIdx));
+    if (parts.length === 0) parts.push(content);
+
+    if (bulletMatch) {
+      elements.push(
+        <div key={i} className="flex gap-1.5 items-start">
+          <span className="text-primary mt-0.5 shrink-0">•</span>
+          <span>{parts}</span>
+        </div>
+      );
+    } else if (numMatch) {
+      elements.push(
+        <div key={i} className="flex gap-1.5 items-start">
+          <span className="text-primary shrink-0 font-semibold">{numMatch[1]}.</span>
+          <span>{parts}</span>
+        </div>
+      );
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} className="h-1" />);
+    } else {
+      elements.push(<div key={i}>{parts}</div>);
+    }
+  });
+
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
 const SupportChat = () => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -80,11 +135,10 @@ const SupportChat = () => {
     if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || loading) return;
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || loading) return;
     setInput("");
-    const userMsg: Msg = { role: "user", content: text };
+    const userMsg: Msg = { role: "user", content: text.trim() };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
@@ -109,11 +163,15 @@ const SupportChat = () => {
         setLoading(false);
       },
     });
-  }, [input, loading, messages]);
+  }, [loading, messages]);
+
+  const send = useCallback(() => {
+    sendMessage(input);
+  }, [input, sendMessage]);
 
   return (
     <>
-      {/* Floating WhatsApp-style button */}
+      {/* Floating button */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
@@ -151,14 +209,14 @@ const SupportChat = () => {
                 <div>
                   <p className="text-sm font-semibold text-foreground">Hi there! 👋</p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-[240px] mx-auto">
-                    I'm your WiFi support assistant. I can help you with connection issues, check your voucher status, or answer questions about our packages.
+                    I can help you with connection issues, check your voucher status, or answer questions about our packages.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center pt-2">
                   {["I can't connect", "Check my voucher", "What packages are available?"].map((q) => (
                     <button
                       key={q}
-                      onClick={() => { setInput(q); }}
+                      onClick={() => sendMessage(q)}
                       className="text-[11px] px-3 py-1.5 rounded-full border border-primary/30 text-primary hover:bg-primary/10 transition-colors font-mono"
                     >
                       {q}
@@ -176,13 +234,13 @@ const SupportChat = () => {
                   </div>
                 )}
                 <div
-                  className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
+                  className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     msg.role === "user"
                       ? "bg-primary text-primary-foreground rounded-br-md"
                       : "bg-muted text-foreground rounded-bl-md"
                   }`}
                 >
-                  {msg.content}
+                  {msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content}
                 </div>
                 {msg.role === "user" && (
                   <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-0.5">

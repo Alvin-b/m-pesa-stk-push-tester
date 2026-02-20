@@ -240,7 +240,7 @@ const Portal = () => {
         {step === "packages" && (
           <div className="max-w-2xl mx-auto space-y-5 mt-2">
             {/* Unified code input at top */}
-            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/5">
+            <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/5">
               <CardContent className="p-4">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Already have a code? Enter it below to connect instantly</p>
                 <div className="flex gap-2">
@@ -273,18 +273,18 @@ const Portal = () => {
               <h2 className="text-base font-semibold text-foreground px-1 mb-3">Choose a Plan to Get Started</h2>
               <div className="space-y-3">
                 {packages.map((pkg, idx) => {
-                  const gradients = [
-                    "from-blue-500 to-indigo-600",
-                    "from-violet-500 to-purple-600",
-                    "from-emerald-500 to-teal-600",
-                    "from-orange-500 to-amber-600",
-                    "from-rose-500 to-pink-600",
+                  const accentColors = [
+                    "hsl(217, 91%, 55%)",
+                    "hsl(262, 83%, 58%)",
+                    "hsl(145, 63%, 42%)",
+                    "hsl(38, 92%, 50%)",
+                    "hsl(0, 72%, 51%)",
                   ];
-                  const gradient = gradients[idx % gradients.length];
+                  const accentColor = accentColors[idx % accentColors.length];
                   return (
                     <Card
                       key={pkg.id}
-                      className="cursor-pointer border-border hover:border-primary/40 bg-white/90 backdrop-blur transition-all duration-200 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 group overflow-hidden"
+                      className="cursor-pointer border-border hover:border-primary/40 bg-card/90 backdrop-blur transition-all duration-200 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 group overflow-hidden"
                       onClick={() => {
                         setSelectedPkg(pkg);
                         setStep("payment");
@@ -293,14 +293,14 @@ const Portal = () => {
                     >
                       <CardContent className="p-0">
                         <div className="flex items-stretch">
-                          <div className={`w-1.5 bg-gradient-to-b ${gradient} shrink-0`} />
+                          <div className="w-1.5 shrink-0" style={{ backgroundColor: accentColor }} />
                           <div className="flex-1 p-4">
                             <div className="flex items-start justify-between">
                               <div>
                                 <h3 className="font-bold text-foreground text-base group-hover:text-primary transition-colors capitalize">
                                   {pkg.name}
                                 </h3>
-                                <span className={`inline-block mt-1 text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-gradient-to-r ${gradient} text-white font-semibold`}>
+                                <span className="inline-block mt-1 text-[11px] font-mono px-2.5 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: accentColor }}>
                                   {formatDuration(pkg.duration_minutes)}
                                 </span>
                               </div>
@@ -338,7 +338,7 @@ const Portal = () => {
         {/* ── Payment Step ── */}
         {step === "payment" && selectedPkg && (
           <div className="max-w-md mx-auto mt-4">
-            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/10">
+            <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
               <CardContent className="p-6 space-y-5">
                 {/* Package summary */}
                 <div className="rounded-xl bg-primary/5 border border-primary/15 p-4 flex items-center gap-4">
@@ -416,7 +416,7 @@ const Portal = () => {
         {/* ── Waiting / Processing Step ── */}
         {step === "waiting" && (
           <div className="max-w-md mx-auto mt-4">
-            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/10">
+            <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
               <CardContent className="py-12 text-center space-y-6">
                 {/* Pulsing rings animation */}
                 <div className="relative flex items-center justify-center mx-auto w-28 h-28">
@@ -465,14 +465,14 @@ const Portal = () => {
         {/* ── Success Step ── */}
         {step === "success" && (
           <div className="max-w-md mx-auto mt-4">
-            <Card className="border-border bg-white/90 backdrop-blur shadow-xl shadow-primary/10 overflow-hidden">
+            <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10 overflow-hidden">
               {/* Gradient top bar */}
-              <div className="h-2 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500" />
+              <div className="h-2 bg-gradient-to-r from-primary to-accent" />
               <CardContent className="py-10 text-center space-y-5">
                 {/* Success icon with animated ring */}
                 <div className="relative flex items-center justify-center mx-auto w-20 h-20">
-                  <div className="absolute w-20 h-20 rounded-full bg-emerald-100 animate-[scale-in_0.5s_ease-out]" />
-                  <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-200 animate-[scale-in_0.4s_ease-out]">
+                  <div className="absolute w-20 h-20 rounded-full bg-primary/10 animate-[scale-in_0.5s_ease-out]" />
+                  <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20 animate-[scale-in_0.4s_ease-out]">
                     <CheckCircle2 className="h-8 w-8 text-white" />
                   </div>
                 </div>
@@ -494,7 +494,7 @@ const Portal = () => {
                     onClick={handleCopyCode}
                     className="mt-3 text-xs text-muted-foreground hover:text-primary gap-1.5"
                   >
-                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
                     {copied ? "Copied!" : "Copy code"}
                   </Button>
                 </div>
@@ -526,12 +526,12 @@ const Portal = () => {
         {/* ── Failed Step ── */}
         {step === "failed" && (
           <div className="max-w-md mx-auto mt-4">
-            <Card className="border-border bg-white/90 backdrop-blur shadow-xl overflow-hidden">
+            <Card className="border-border bg-card/90 backdrop-blur shadow-xl overflow-hidden">
               {/* Red top bar */}
-              <div className="h-2 bg-gradient-to-r from-rose-400 via-red-500 to-orange-400" />
+              <div className="h-2 bg-destructive" />
               <CardContent className="py-10 text-center space-y-5">
-                <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mx-auto">
-                  <XCircle className="h-8 w-8 text-rose-500" />
+                <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+                  <XCircle className="h-8 w-8 text-destructive" />
                 </div>
 
                 <div>
