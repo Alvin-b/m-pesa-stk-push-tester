@@ -217,19 +217,19 @@ const Portal = () => {
         backgroundAttachment: "fixed",
       }}
     >
-      {/* Light overlay */}
-      <div className="absolute inset-0 bg-white/80 backdrop-blur-sm" />
+      {/* Light overlay with subtle gradient */}
+      <div className="absolute inset-0 bg-gradient-to-b from-background/90 via-background/80 to-background/95 backdrop-blur-sm" />
 
       {/* Header */}
-      <div className="relative z-10 text-center pt-8 pb-4 px-4">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 mb-3 shadow-lg">
-          <Wifi className="h-7 w-7 text-primary" />
+      <div className="relative z-10 text-center pt-10 pb-6 px-4">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent mb-4 shadow-xl shadow-primary/25">
+          <Wifi className="h-8 w-8 text-white" />
         </div>
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
           WiFi Access Portal
         </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Connect to high-speed internet in seconds
+        <p className="text-muted-foreground text-sm mt-1.5 max-w-xs mx-auto">
+          Fast, reliable internet — connect in seconds
         </p>
       </div>
 
@@ -238,28 +238,29 @@ const Portal = () => {
 
         {/* ── Packages Step ── */}
         {step === "packages" && (
-          <div className="max-w-2xl mx-auto space-y-5 mt-2">
+          <div className="max-w-lg mx-auto space-y-6 mt-2">
             {/* Unified code input at top */}
-            <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/5">
-              <CardContent className="p-4">
-                <p className="text-xs font-medium text-muted-foreground mb-2">Already have a code? Enter it below to connect instantly</p>
+            <Card className="border-primary/20 bg-card/95 backdrop-blur-md shadow-xl shadow-primary/10 overflow-hidden">
+              <div className="h-1 bg-gradient-to-r from-primary to-accent" />
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <KeyRound className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold text-foreground">Already have a code?</p>
+                </div>
                 <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Access code or M-Pesa transaction code (e.g. ABCDE or QGH7X0KL2P)"
-                      value={accessInput}
-                      onChange={(e) => setAccessInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAccessInput()}
-                      className="font-mono pl-10 bg-secondary/50 h-11 border-border text-sm"
-                    />
-                  </div>
+                  <Input
+                    placeholder="Enter access code or M-Pesa receipt"
+                    value={accessInput}
+                    onChange={(e) => setAccessInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAccessInput()}
+                    className="font-mono bg-secondary/50 h-12 border-border text-sm tracking-wide uppercase"
+                  />
                   <Button
                     onClick={handleAccessInput}
                     disabled={!accessInput.trim() || loading}
-                    className="h-11 px-5 font-semibold shrink-0"
+                    className="h-12 px-6 font-semibold shrink-0 bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 shadow-md shadow-primary/20"
                   >
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Go"}
                   </Button>
                 </div>
                 {error && (
@@ -268,69 +269,51 @@ const Portal = () => {
               </CardContent>
             </Card>
 
+            {/* Divider */}
+            <div className="flex items-center gap-3 px-1">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">or choose a plan</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
             {/* Plans */}
-            <div>
-              <h2 className="text-base font-semibold text-foreground px-1 mb-3">Choose a Plan to Get Started</h2>
-              <div className="space-y-3">
-                {packages.map((pkg, idx) => {
-                  const accentColors = [
-                    "hsl(217, 91%, 55%)",
-                    "hsl(262, 83%, 58%)",
-                    "hsl(145, 63%, 42%)",
-                    "hsl(38, 92%, 50%)",
-                    "hsl(0, 72%, 51%)",
-                  ];
-                  const accentColor = accentColors[idx % accentColors.length];
-                  return (
-                    <Card
-                      key={pkg.id}
-                      className="cursor-pointer border-border hover:border-primary/40 bg-card/90 backdrop-blur transition-all duration-200 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 group overflow-hidden"
-                      onClick={() => {
-                        setSelectedPkg(pkg);
-                        setStep("payment");
-                        setError("");
-                      }}
-                    >
-                      <CardContent className="p-0">
-                        <div className="flex items-stretch">
-                          <div className="w-1.5 shrink-0" style={{ backgroundColor: accentColor }} />
-                          <div className="flex-1 p-4">
-                            <div className="flex items-start justify-between">
-                              <div>
-                                <h3 className="font-bold text-foreground text-base group-hover:text-primary transition-colors capitalize">
-                                  {pkg.name}
-                                </h3>
-                                <span className="inline-block mt-1 text-[11px] font-mono px-2.5 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: accentColor }}>
-                                  {formatDuration(pkg.duration_minutes)}
-                                </span>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-bold text-foreground text-xl">
-                                  KES {pkg.price % 1 === 0 ? pkg.price.toFixed(0) : pkg.price.toFixed(2)}
-                                </p>
-                                <p className="text-[11px] text-muted-foreground mt-0.5">one-time</p>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-3 mt-2">
-                              {getFeatures(pkg).map((feature, i) => (
-                                <div key={i} className="flex items-center gap-1.5">
-                                  <Check className="h-3.5 w-3.5 text-primary shrink-0" />
-                                  <span className="text-xs text-muted-foreground">{feature}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-center pr-4">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                              <ArrowLeft className="h-4 w-4 text-primary rotate-180" />
-                            </div>
-                          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {packages.map((pkg) => (
+                <Card
+                  key={pkg.id}
+                  className="cursor-pointer border-border hover:border-primary/40 bg-card/95 backdrop-blur-md transition-all duration-200 hover:shadow-xl hover:shadow-primary/15 hover:-translate-y-1 group overflow-hidden"
+                  onClick={() => {
+                    setSelectedPkg(pkg);
+                    setStep("payment");
+                    setError("");
+                  }}
+                >
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/15 to-accent/15 flex items-center justify-center group-hover:from-primary/25 group-hover:to-accent/25 transition-colors">
+                        <Zap className="h-5 w-5 text-primary" />
+                      </div>
+                      <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-primary/10 text-primary font-semibold">
+                        {formatDuration(pkg.duration_minutes)}
+                      </span>
+                    </div>
+                    <h3 className="font-bold text-foreground text-base group-hover:text-primary transition-colors capitalize">
+                      {pkg.name}
+                    </h3>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-2xl font-bold text-foreground">KES {pkg.price % 1 === 0 ? pkg.price.toFixed(0) : pkg.price.toFixed(2)}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
+                      {getFeatures(pkg).map((feature, i) => (
+                        <div key={i} className="flex items-center gap-1">
+                          <Check className="h-3 w-3 text-primary shrink-0" />
+                          <span className="text-[11px] text-muted-foreground">{feature}</span>
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         )}
