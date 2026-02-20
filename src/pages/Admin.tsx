@@ -56,18 +56,13 @@ interface RouterSettingsRow {
   hotspot_interface: string | null;
 }
 
-const DURATION_PRESETS = [
-  { label: "1 Hour", value: 60 },
-  { label: "2 Hours", value: 120 },
-  { label: "3 Hours", value: 180 },
-  { label: "6 Hours", value: 360 },
-  { label: "12 Hours", value: 720 },
-  { label: "1 Day", value: 1440 },
-  { label: "3 Days", value: 4320 },
-  { label: "1 Week", value: 10080 },
-  { label: "2 Weeks", value: 20160 },
-  { label: "1 Month", value: 43200 },
-];
+type DurationUnit = "hours" | "days" | "weeks" | "months";
+const DURATION_UNIT_MINUTES: Record<DurationUnit, number> = {
+  hours: 60,
+  days: 1440,
+  weeks: 10080,
+  months: 43200,
+};
 
 const CHART_COLORS = [
   "hsl(145, 63%, 42%)",
@@ -91,7 +86,7 @@ const Admin = () => {
   const [activeSection, setActiveSection] = useState<ActiveSection>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_minutes: 60, price: 20, speed_limit: "" });
+  const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "" });
   const [savingPkg, setSavingPkg] = useState(false);
   const [routerForm, setRouterForm] = useState({ router_name: "Main Router", router_ip: "", dns_name: "", hotspot_interface: "wlan1" });
   const [savingRouter, setSavingRouter] = useState(false);
@@ -175,14 +170,15 @@ const Admin = () => {
 
   const addPackage = async () => {
     setSavingPkg(true);
+    const durationMinutes = newPkg.duration_value * DURATION_UNIT_MINUTES[newPkg.duration_unit];
     await supabase.from("packages").insert([{
       name: newPkg.name,
       description: newPkg.description || null,
-      duration_minutes: newPkg.duration_minutes,
+      duration_minutes: durationMinutes,
       price: newPkg.price,
       speed_limit: newPkg.speed_limit || null,
     }]);
-    setNewPkg({ name: "", description: "", duration_minutes: 60, price: 20, speed_limit: "" });
+    setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "" });
     setSavingPkg(false);
     loadData();
   };
@@ -800,14 +796,24 @@ const Admin = () => {
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Duration</label>
-                      <Select value={String(newPkg.duration_minutes)} onValueChange={val => setNewPkg({ ...newPkg, duration_minutes: parseInt(val) })}>
-                        <SelectTrigger className="font-mono bg-muted/50 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {DURATION_PRESETS.map(d => (
-                            <SelectItem key={d.value} value={String(d.value)} className="font-mono text-sm">{d.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={newPkg.duration_value}
+                          onChange={e => setNewPkg({ ...newPkg, duration_value: Math.max(1, parseInt(e.target.value) || 1) })}
+                          className="font-mono bg-muted/50 text-sm w-20"
+                        />
+                        <Select value={newPkg.duration_unit} onValueChange={(val: DurationUnit) => setNewPkg({ ...newPkg, duration_unit: val })}>
+                          <SelectTrigger className="font-mono bg-muted/50 text-sm flex-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="hours" className="font-mono text-sm">Hours</SelectItem>
+                            <SelectItem value="days" className="font-mono text-sm">Days</SelectItem>
+                            <SelectItem value="weeks" className="font-mono text-sm">Weeks</SelectItem>
+                            <SelectItem value="months" className="font-mono text-sm">Months</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Price (KES)</label>
