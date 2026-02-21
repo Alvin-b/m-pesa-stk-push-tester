@@ -26,6 +26,10 @@ serve(async (req) => {
     const { packageId, phoneNumber } = await req.json();
     if (!packageId) throw new Error("Package ID required");
 
+    // Get package details for session timeout
+    const { data: pkg, error: pkgErr } = await supabase.from("packages").select("duration_minutes").eq("id", packageId).single();
+    if (pkgErr || !pkg) throw new Error("Package not found");
+
     const code = Array.from({ length: 5 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
 
     const { data: voucher, error: vErr } = await supabase.from("vouchers").insert({
@@ -37,9 +41,15 @@ serve(async (req) => {
 
     if (vErr) throw vErr;
 
-    // Add to radcheck for RADIUS
+    // Add to radcheck for RADIUS authentication
     await supabase.from("radcheck").insert([
       { username: code, attribute: "Cleartext-Password", op: ":=", value: code },
+    ]);
+
+    // Add session timeout to radreply (duration in seconds)
+    const sessionTimeout = pkg.duration_minutes * 60;
+    await supabase.from("radreply").insert([
+      { username: code, attribute: "Session-Timeout", op: ":=", value: String(sessionTimeout) },
     ]);
 
     return new Response(JSON.stringify({ code, voucher }), {

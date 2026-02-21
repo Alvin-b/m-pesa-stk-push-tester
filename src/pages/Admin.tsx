@@ -54,6 +54,10 @@ interface RouterSettingsRow {
   router_ip: string | null;
   dns_name: string | null;
   hotspot_interface: string | null;
+  radius_server_ip: string | null;
+  radius_secret: string | null;
+  radius_auth_port: number | null;
+  radius_acct_port: number | null;
 }
 
 type DurationUnit = "hours" | "days" | "weeks" | "months";
@@ -88,7 +92,16 @@ const Admin = () => {
 
   const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "" });
   const [savingPkg, setSavingPkg] = useState(false);
-  const [routerForm, setRouterForm] = useState({ router_name: "Main Router", router_ip: "", dns_name: "", hotspot_interface: "wlan1" });
+  const [routerForm, setRouterForm] = useState({ 
+    router_name: "Main Router", 
+    router_ip: "", 
+    dns_name: "", 
+    hotspot_interface: "wlan1",
+    radius_server_ip: "",
+    radius_secret: "",
+    radius_auth_port: 1812,
+    radius_acct_port: 1813
+  });
   const [savingRouter, setSavingRouter] = useState(false);
 
   const [genPkgId, setGenPkgId] = useState("");
@@ -125,6 +138,10 @@ const Admin = () => {
         router_ip: rRes.data.router_ip || "",
         dns_name: rRes.data.dns_name || "",
         hotspot_interface: rRes.data.hotspot_interface || "wlan1",
+        radius_server_ip: rRes.data.radius_server_ip || "",
+        radius_secret: rRes.data.radius_secret || "",
+        radius_auth_port: rRes.data.radius_auth_port || 1812,
+        radius_acct_port: rRes.data.radius_acct_port || 1813,
       });
     }
     setLoadingData(false);
@@ -257,6 +274,11 @@ const Admin = () => {
     const dns = routerForm.dns_name || "wifi.local";
     const ip = routerForm.router_ip || "10.10.0.1";
     const hostname = new URL(portalUrl).hostname;
+    const radiusIp = routerForm.radius_server_ip || "YOUR_RADIUS_SERVER_IP";
+    const radiusSecret = routerForm.radius_secret || "YOUR_RADIUS_SECRET";
+    const authPort = routerForm.radius_auth_port || 1812;
+    const acctPort = routerForm.radius_acct_port || 1813;
+    
     const script = [
       "# ==========================================",
       "# MikroTik Complete Hotspot Billing Setup",
@@ -303,12 +325,12 @@ const Admin = () => {
       "",
       "# --- 8. RADIUS Server ---",
       `/radius`,
-      `add service=hotspot address=YOUR_RADIUS_SERVER_IP secret=YOUR_RADIUS_SECRET \\`,
-      `    authentication-port=1812 accounting-port=1813`,
+      `add service=hotspot address=${radiusIp} secret=${radiusSecret} \\`,
+      `    authentication-port=${authPort} accounting-port=${acctPort}`,
       "",
       "# --- 9. Firewall - Allow RADIUS Traffic ---",
       `/ip firewall filter`,
-      `add chain=output protocol=udp dst-port=1812,1813 action=accept comment="Allow RADIUS"`,
+      `add chain=output protocol=udp dst-port=${authPort},${acctPort} action=accept comment="Allow RADIUS"`,
       "",
       `:log info "WiFi Billing hotspot configuration applied successfully"`,
     ].join("\n");
@@ -883,6 +905,30 @@ const Admin = () => {
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Hotspot Interface</label>
                       <Input value={routerForm.hotspot_interface} onChange={e => setRouterForm({ ...routerForm, hotspot_interface: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                    </div>
+                  </div>
+                  
+                  <div className="border-t border-border pt-4 mt-4">
+                    <h3 className="text-xs font-mono font-semibold text-foreground mb-3 flex items-center gap-2">
+                      <Shield className="h-3.5 w-3.5 text-primary" /> RADIUS Server Configuration
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">RADIUS Server IP</label>
+                        <Input placeholder="e.g. radius.yourdomain.com or IP" value={routerForm.radius_server_ip} onChange={e => setRouterForm({ ...routerForm, radius_server_ip: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">RADIUS Secret</label>
+                        <Input type="password" placeholder="Shared secret key" value={routerForm.radius_secret} onChange={e => setRouterForm({ ...routerForm, radius_secret: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Auth Port</label>
+                        <Input type="number" placeholder="1812" value={routerForm.radius_auth_port} onChange={e => setRouterForm({ ...routerForm, radius_auth_port: parseInt(e.target.value) || 1812 })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Accounting Port</label>
+                        <Input type="number" placeholder="1813" value={routerForm.radius_acct_port} onChange={e => setRouterForm({ ...routerForm, radius_acct_port: parseInt(e.target.value) || 1813 })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
                     </div>
                   </div>
                   <Button onClick={saveRouterSettings} disabled={savingRouter} className="font-mono text-xs">

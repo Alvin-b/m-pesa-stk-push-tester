@@ -124,6 +124,10 @@ serve(async (req) => {
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const sb = createClient(supabaseUrl, supabaseKey);
 
+      // Get package duration for session timeout
+      const { data: pkg } = await sb.from('packages').select('duration_minutes').eq('id', packageId).single();
+      const sessionTimeout = pkg?.duration_minutes ? pkg.duration_minutes * 60 : 3600;
+
       const code = generateVoucherCode();
       await sb.from('vouchers').insert({
         code,
@@ -133,9 +137,14 @@ serve(async (req) => {
         status: 'active',
       });
 
-      // Also add to radcheck for RADIUS compatibility
+      // Add to radcheck for RADIUS authentication
       await sb.from('radcheck').insert([
         { username: code, attribute: 'Cleartext-Password', op: ':=', value: code },
+      ]);
+
+      // Add session timeout to radreply
+      await sb.from('radreply').insert([
+        { username: code, attribute: 'Session-Timeout', op: ':=', value: String(sessionTimeout) },
       ]);
     }
 
