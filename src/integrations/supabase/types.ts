@@ -165,6 +165,8 @@ export type Database = {
           dns_name: string | null
           hotspot_interface: string | null
           id: string
+          radius_secret: string | null
+          radius_server_ip: string | null
           router_ip: string | null
           router_name: string
           updated_at: string
@@ -178,6 +180,8 @@ export type Database = {
           dns_name?: string | null
           hotspot_interface?: string | null
           id?: string
+          radius_secret?: string | null
+          radius_server_ip?: string | null
           router_ip?: string | null
           router_name?: string
           updated_at?: string
@@ -191,6 +195,8 @@ export type Database = {
           dns_name?: string | null
           hotspot_interface?: string | null
           id?: string
+          radius_secret?: string | null
+          radius_server_ip?: string | null
           router_ip?: string | null
           router_name?: string
           updated_at?: string
