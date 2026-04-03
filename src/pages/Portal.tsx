@@ -60,36 +60,52 @@ const Portal = () => {
     const code = accessInput.trim().toUpperCase();
 
     // Try as access code first (5-letter codes)
-    const { data: voucher } = await supabase
+    let { data: voucher } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
       .eq("code", code)
       .eq("status", "active")
       .maybeSingle();
 
-    if (voucher) {
-      setVoucherCode(code);
-      setStep("success");
+    // Try as M-Pesa receipt if not found by code
+    if (!voucher) {
+      const { data: receipt } = await supabase
+        .from("vouchers")
+        .select("*, packages(*)")
+        .eq("mpesa_receipt", code)
+        .eq("status", "active")
+        .maybeSingle();
+      voucher = receipt;
+    }
+
+    if (!voucher) {
+      setError("Invalid code. Please check your access code or M-Pesa transaction code and try again.");
       setLoading(false);
       return;
     }
 
-    // Try as M-Pesa receipt
-    const { data: receipt } = await supabase
-      .from("vouchers")
-      .select("*, packages(*)")
-      .eq("mpesa_receipt", code)
-      .eq("status", "active")
+    // Verify RADIUS credentials exist for this voucher
+    const { data: radcheck } = await supabase
+      .from("radcheck")
+      .select("username")
+      .eq("username", voucher.code)
       .maybeSingle();
 
-    if (receipt) {
-      setVoucherCode(receipt.code);
-      setStep("success");
+    if (!radcheck) {
+      setError("Your code is valid but RADIUS credentials are missing. Please contact support.");
       setLoading(false);
       return;
     }
 
-    setError("Code not found. Check your access code or M-Pesa transaction code.");
+    // Check if voucher has expired (if expires_at is set)
+    if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
+      setError("This code has expired. Please purchase a new package.");
+      setLoading(false);
+      return;
+    }
+
+    setVoucherCode(voucher.code);
+    setStep("success");
     setLoading(false);
   };
 
@@ -461,8 +477,8 @@ const Portal = () => {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-bold text-foreground">Payment Successful! 🎉</h2>
-                  <p className="text-muted-foreground text-sm mt-1">You're all set — use the code below to connect</p>
+                  <h2 className="text-2xl font-bold text-foreground">You're Connected! 🎉</h2>
+                  <p className="text-muted-foreground text-sm mt-1">Use the credentials below to log in to the WiFi network</p>
                 </div>
 
                 {/* Voucher code box */}
