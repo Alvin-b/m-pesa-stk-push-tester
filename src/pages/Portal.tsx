@@ -183,8 +183,24 @@ const Portal = () => {
     }
 
     setVoucherCode(voucher.code);
-    setStep("success");
-    setLoading(false);
+    
+    // Auto-connect via MikroTik if behind captive portal
+    if (mikrotikDetected) {
+      setStep("connecting");
+      setLoading(false);
+      setConnectingToWifi(true);
+      try {
+        await loginToMikroTik(voucher.code);
+        setConnectingToWifi(false);
+        setStep("success");
+      } catch {
+        setConnectingToWifi(false);
+        setStep("success"); // Show success anyway with manual instructions
+      }
+    } else {
+      setStep("success");
+      setLoading(false);
+    }
   };
 
   const handlePayment = async () => {
