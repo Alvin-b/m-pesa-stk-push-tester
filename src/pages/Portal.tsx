@@ -566,6 +566,30 @@ const Portal = () => {
           </div>
         )}
 
+        {/* ── Connecting Step ── */}
+        {step === "connecting" && (
+          <div className="max-w-md mx-auto mt-4">
+            <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
+              <CardContent className="py-12 text-center space-y-6">
+                <div className="relative flex items-center justify-center mx-auto w-28 h-28">
+                  <div className="absolute w-28 h-28 rounded-full bg-primary/10 animate-ping" style={{ animationDuration: "1.5s" }} />
+                  <div className="absolute w-20 h-20 rounded-full bg-primary/15 animate-ping" style={{ animationDuration: "1.5s", animationDelay: "0.2s" }} />
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+                    <Wifi className="h-7 w-7 text-white animate-pulse" />
+                  </div>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Connecting to WiFi...</h2>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    Authenticating your credentials with the network
+                  </p>
+                </div>
+                <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto" />
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* ── Success Step ── */}
         {step === "success" && (
           <div className="max-w-md mx-auto mt-4">
