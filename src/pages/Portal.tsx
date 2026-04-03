@@ -477,8 +477,8 @@ const Portal = () => {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-bold text-foreground">Payment Successful! 🎉</h2>
-                  <p className="text-muted-foreground text-sm mt-1">You're all set — use the code below to connect</p>
+                  <h2 className="text-2xl font-bold text-foreground">You're Connected! 🎉</h2>
+                  <p className="text-muted-foreground text-sm mt-1">Use the credentials below to log in to the WiFi network</p>
                 </div>
 
                 {/* Voucher code box */}
