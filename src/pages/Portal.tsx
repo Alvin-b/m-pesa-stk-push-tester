@@ -606,8 +606,14 @@ const Portal = () => {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-bold text-foreground">You're Connected! 🎉</h2>
-                  <p className="text-muted-foreground text-sm mt-1">Use the credentials below to log in to the WiFi network</p>
+                  <h2 className="text-2xl font-bold text-foreground">
+                    {mikrotikDetected ? "You're Connected! 🎉" : "Payment Successful! 🎉"}
+                  </h2>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    {mikrotikDetected 
+                      ? "Your device has been authenticated — you should now have internet access" 
+                      : "Use the credentials below to log in to the WiFi network"}
+                  </p>
                 </div>
 
                 {/* Voucher code box */}
