@@ -33,7 +33,78 @@ const FAILURE_CODES: Record<string, string> = {
   "1001": "Unable to process your request. Please try again.",
 };
 
-type Step = "packages" | "payment" | "waiting" | "success" | "failed";
+type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
+
+// Parse MikroTik captive portal URL parameters
+const getMikroTikParams = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    linkLoginOnly: params.get("link-login-only") || params.get("link-login"),
+    linkOrig: params.get("link-orig") || params.get("link-redirect"),
+    mac: params.get("mac"),
+    ip: params.get("ip"),
+    username: params.get("username"),
+    chapId: params.get("chap-id"),
+    chapChallenge: params.get("chap-challenge"),
+    linkLogin: params.get("link-login"),
+  };
+};
+
+// Attempt to log in via MikroTik's hotspot login endpoint
+const loginToMikroTik = (code: string): Promise<boolean> => {
+  const mt = getMikroTikParams();
+
+  // If we have link-login-only or link-login, use it to POST credentials
+  const loginUrl = mt.linkLoginOnly || mt.linkLogin;
+
+  if (!loginUrl) {
+    // No MikroTik params – user is not behind a captive portal (e.g. testing from browser)
+    return Promise.resolve(false);
+  }
+
+  // Build the login URL with credentials
+  // MikroTik expects username & password as query params on the login URL
+  const separator = loginUrl.includes("?") ? "&" : "?";
+  const fullUrl = `${loginUrl}${separator}username=${encodeURIComponent(code)}&password=${encodeURIComponent(code)}`;
+
+  // Use a hidden form to POST to MikroTik (works better than fetch due to cross-origin)
+  return new Promise((resolve) => {
+    // First try via a hidden iframe to avoid navigating away
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.name = "mikrotik-login-frame";
+    document.body.appendChild(iframe);
+
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = loginUrl;
+    form.target = "mikrotik-login-frame";
+
+    const addField = (name: string, value: string) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    };
+
+    addField("username", code);
+    addField("password", code);
+    if (mt.mac) addField("dst", mt.linkOrig || "");
+    if (mt.chapId) addField("chap-id", mt.chapId);
+    if (mt.chapChallenge) addField("chap-challenge", mt.chapChallenge);
+
+    document.body.appendChild(form);
+    form.submit();
+
+    // Give MikroTik a moment to process, then redirect
+    setTimeout(() => {
+      document.body.removeChild(form);
+      document.body.removeChild(iframe);
+      resolve(true);
+    }, 2000);
+  });
+};
 
 const Portal = () => {
   const [packages, setPackages] = useState<Package[]>([]);
@@ -47,11 +118,18 @@ const Portal = () => {
   const [failureReason, setFailureReason] = useState("");
   const [copied, setCopied] = useState(false);
   const [pollCount, setPollCount] = useState(0);
+  const [connectingToWifi, setConnectingToWifi] = useState(false);
+  const [mikrotikDetected, setMikrotikDetected] = useState(false);
 
   useEffect(() => {
     supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
       if (data) setPackages(data as Package[]);
     });
+    // Detect if user is behind MikroTik captive portal
+    const mt = getMikroTikParams();
+    if (mt.linkLoginOnly || mt.linkLogin) {
+      setMikrotikDetected(true);
+    }
   }, []);
 
   const handleAccessInput = async () => {
