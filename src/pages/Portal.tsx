@@ -257,7 +257,18 @@ const Portal = () => {
             .eq("checkout_request_id", checkoutRequestId)
             .maybeSingle();
 
-          setVoucherCode(voucher?.code || "CHECK ADMIN");
+          const code = voucher?.code || "CHECK ADMIN";
+          setVoucherCode(code);
+          
+          // Auto-connect via MikroTik
+          if (mikrotikDetected && code !== "CHECK ADMIN") {
+            setStep("connecting");
+            setConnectingToWifi(true);
+            try {
+              await loginToMikroTik(code);
+              setConnectingToWifi(false);
+            } catch {}
+          }
           setStep("success");
           return;
         }
