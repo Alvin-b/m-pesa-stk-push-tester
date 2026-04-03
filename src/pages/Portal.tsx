@@ -633,16 +633,25 @@ const Portal = () => {
                   </Button>
                 </div>
 
-                {/* Instructions */}
-                <div className="bg-secondary/50 rounded-xl p-4 text-left">
-                  <p className="text-sm font-semibold text-foreground mb-2">How to connect:</p>
-                  <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-                    <li>Select the WiFi network</li>
-                    <li>Enter the code above as your <strong>username</strong></li>
-                    <li>Enter the same code as your <strong>password</strong></li>
-                    <li>Click Connect / Login</li>
-                  </ol>
-                </div>
+                {/* Instructions - only show manual steps if not auto-connected */}
+                {mikrotikDetected ? (
+                  <div className="bg-primary/5 rounded-xl p-4 text-center">
+                    <p className="text-sm text-foreground font-medium">✅ Auto-connected via captive portal</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      If you still can't browse, try opening a new tab or refreshing your browser.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-secondary/50 rounded-xl p-4 text-left">
+                    <p className="text-sm font-semibold text-foreground mb-2">How to connect:</p>
+                    <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                      <li>Select the WiFi network</li>
+                      <li>Enter the code above as your <strong>username</strong></li>
+                      <li>Enter the same code as your <strong>password</strong></li>
+                      <li>Click Connect / Login</li>
+                    </ol>
+                  </div>
+                )}
 
                 <Button
                   variant="outline"
