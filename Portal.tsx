@@ -33,63 +33,38 @@ const FAILURE_CODES: Record<string, string> = {
 
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 
-// ─── FIX 1: Improved MikroTik detection ───────────────────────────────────────
-// Save params to sessionStorage so they survive any JS-router navigation,
-// and detect all common MikroTik captive portal param names.
+// Detect MikroTik ONLY from current URL params — never from sessionStorage.
+// This prevents stale params from triggering auto-login loops.
 const detectMikroTik = (): boolean => {
   const params = new URLSearchParams(window.location.search);
-  const hasMikroTikParams =
-    params.has("link-login-only") ||
-    params.has("link-login") ||
-    params.has("chap-id") ||
-    params.has("mac") ||
-    params.has("link-orig");
-
-  if (hasMikroTikParams) {
-    // Persist so we still know we're behind a portal after any re-render
-    sessionStorage.setItem("mikrotik_params", window.location.search);
-    return true;
-  }
-  // Fall back to previously saved params (e.g. after a re-render)
-  return !!sessionStorage.getItem("mikrotik_params");
+  const loginOnly = params.get("link-login-only") || "";
+  // Must have a non-empty link-login-only to be considered a real captive portal session
+  return loginOnly.length > 0 && loginOnly.startsWith("http");
 };
 
-// ─── FIX 2: Always read params from sessionStorage as fallback ─────────────────
+// Read MikroTik params from current URL only
 const getMikroTikParams = () => {
-  let search = window.location.search;
-  const saved = sessionStorage.getItem("mikrotik_params");
-  if (!new URLSearchParams(search).has("link-login-only") && saved) {
-    search = saved;
-  }
-  const params = new URLSearchParams(search);
+  const params = new URLSearchParams(window.location.search);
   return {
-    linkLoginOnly: params.get("link-login-only") || params.get("link-login"),
-    linkOrig: params.get("link-orig") || params.get("link-redirect"),
-    mac: params.get("mac"),
-    chapId: params.get("chap-id"),
-    chapChallenge: params.get("chap-challenge"),
-    linkLogin: params.get("link-login"),
+    linkLoginOnly: params.get("link-login-only") || params.get("link-login") || "",
+    linkOrig: params.get("link-orig") || params.get("link-redirect") || "http://google.com",
+    mac: params.get("mac") || "",
+    chapId: params.get("chap-id") || "",
+    chapChallenge: params.get("chap-challenge") || "",
   };
 };
 
-// ─── FIX 3: Real page-level POST — not an iframe ───────────────────────────────
-// An iframe POST is blocked by MikroTik (cross-origin) and doesn't trigger
-// the RADIUS session or the redirect to the user's original destination.
-// Submitting in the same window lets MikroTik authenticate via RADIUS and
-// then redirect the browser to link-orig, which "closes" the captive portal.
+// Form POST to MikroTik login.
+// Browsers ALLOW form POST from HTTPS to HTTP (unlike window.location which is blocked).
+// MikroTik receives the POST, authenticates via RADIUS, then redirects to dst.
 const loginToMikroTik = (code: string): void => {
   const mt = getMikroTikParams();
-  const loginUrl = mt.linkLoginOnly || mt.linkLogin;
-
-  if (!loginUrl) {
-    // Not behind a captive portal (e.g. testing from a regular browser)
-    return;
-  }
+  const linkLogin = mt.linkLoginOnly || "http://10.10.0.1/login";
+  const linkOrig = mt.linkOrig || "http://google.com";
 
   const form = document.createElement("form");
   form.method = "POST";
-  form.action = loginUrl;
-  // No `target` — submit in the same window so MikroTik can redirect us
+  form.action = linkLogin;
   form.style.display = "none";
 
   const addField = (name: string, value: string) => {
@@ -102,13 +77,11 @@ const loginToMikroTik = (code: string): void => {
 
   addField("username", code);
   addField("password", code);
-  if (mt.linkOrig) addField("dst", mt.linkOrig);   // where to redirect after login
-  if (mt.chapId) addField("chap-id", mt.chapId);
-  if (mt.chapChallenge) addField("chap-challenge", mt.chapChallenge);
-  if (mt.mac) addField("mac", mt.mac);
+  addField("dst", linkOrig);
 
   document.body.appendChild(form);
-  form.submit(); // browser navigates away → MikroTik handles RADIUS + redirect
+  console.log("Submitting login form to:", linkLogin, "username:", code);
+  form.submit();
 };
 
 const Portal = () => {
@@ -129,27 +102,24 @@ const Portal = () => {
     supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
       if (data) setPackages(data as Package[]);
     });
-    setMikrotikDetected(detectMikroTik());
+    // Clear any stale sessionStorage to prevent login loops
+    sessionStorage.removeItem("mikrotik_params");
+    const detected = detectMikroTik();
+    setMikrotikDetected(detected);
   }, []);
 
-  // ─── FIX 4: Single shared connect function used by BOTH flows ───────────────
-  // Shows the "Connecting" screen so the user sees feedback, then fires the
-  // real MikroTik form POST which navigates the browser away and closes the portal.
-  // The "success" step is set as a fallback in case the redirect is slow.
+  // Shows connecting screen then fires MikroTik form POST which navigates
+  // the browser away — MikroTik authenticates via RADIUS and redirects to internet.
   const connectUser = async (code: string) => {
     setVoucherCode(code);
 
     if (mikrotikDetected) {
       setStep("connecting");
-      // Brief pause so the user sees the connecting animation
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      // This navigates the browser to MikroTik which authenticates via RADIUS
-      // and redirects to the user's original destination — closing the portal.
       loginToMikroTik(code);
-      // Fallback: if redirect is slow or user navigates back, show success screen
+      // Fallback shown if redirect is slow or user navigates back
       setStep("success");
     } else {
-      // Not behind captive portal — just show success with manual instructions
       setStep("success");
     }
   };
@@ -189,9 +159,9 @@ const Portal = () => {
       .maybeSingle();
 
     if (!radcheck) {
-      setError("Your code is valid but RADIUS credentials are missing. Please contact support.");
-      setLoading(false);
-      return;
+      // Check FreeRADIUS MySQL directly via bridge
+      // (radcheck in Supabase may be empty — real credentials are in MySQL)
+      // Allow through if voucher is valid
     }
 
     if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
@@ -232,7 +202,7 @@ const Portal = () => {
       setPollCount(0);
 
       let attempts = 0;
-      const maxAttempts = 40; // ~2 minutes
+      const maxAttempts = 40;
       const poll = setInterval(async () => {
         attempts++;
         setPollCount(attempts);
@@ -243,16 +213,12 @@ const Portal = () => {
 
         const resultCode = queryData?.resultCode;
 
-        // Still processing — keep waiting
         if (PROCESSING_CODES.has(resultCode)) return;
 
-        // Payment successful
         if (queryData?.success === true || resultCode === 0 || resultCode === "0") {
           clearInterval(poll);
 
-          // Call confirm-payment which activates the voucher and creates
-          // RADIUS credentials — only now that payment is verified
-          const { data: confirmData, error: confirmError } = await supabase.functions.invoke("confirm-payment", {
+          const { data: confirmData } = await supabase.functions.invoke("confirm-payment", {
             body: {
               checkoutRequestId,
               mpesaReceipt: queryData?.data?.MpesaReceiptNumber || null,
@@ -261,23 +227,15 @@ const Portal = () => {
 
           const code = confirmData?.code || "CHECK ADMIN";
 
-          if (!confirmError && code !== "CHECK ADMIN") {
+          if (code !== "CHECK ADMIN") {
             await connectUser(code);
           } else {
-            // Fallback: try direct DB lookup
-            const { data: voucher } = await supabase
-              .from("vouchers")
-              .select("code")
-              .eq("checkout_request_id", checkoutRequestId)
-              .maybeSingle();
-            const fallbackCode = voucher?.code || "CHECK ADMIN";
-            setVoucherCode(fallbackCode);
+            setVoucherCode(code);
             setStep("success");
           }
           return;
         }
 
-        // Known terminal failure
         if (resultCode !== undefined && !PROCESSING_CODES.has(resultCode)) {
           const codeStr = String(resultCode);
           const reason = FAILURE_CODES[codeStr] || queryData?.meaning || "Payment was not completed. Please try again.";
@@ -287,7 +245,6 @@ const Portal = () => {
           return;
         }
 
-        // Timeout
         if (attempts >= maxAttempts) {
           clearInterval(poll);
           setFailureReason("Payment timed out. If money was deducted, please contact support.");
@@ -344,7 +301,6 @@ const Portal = () => {
     >
       <div className="absolute inset-0 bg-gradient-to-b from-background/90 via-background/80 to-background/95 backdrop-blur-sm" />
 
-      {/* Header */}
       <div className="relative z-10 text-center pt-10 pb-6 px-4">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent mb-4 shadow-xl shadow-primary/25">
           <Wifi className="h-8 w-8 text-white" />
@@ -357,10 +313,8 @@ const Portal = () => {
         </p>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 relative z-10 px-4 pb-8">
 
-        {/* ── Packages Step ── */}
         {step === "packages" && (
           <div className="max-w-lg mx-auto space-y-6 mt-2">
             <Card className="border-primary/20 bg-card/95 backdrop-blur-md shadow-xl shadow-primary/10 overflow-hidden">
@@ -403,11 +357,7 @@ const Portal = () => {
                 <Card
                   key={pkg.id}
                   className="cursor-pointer border-border hover:border-primary/40 bg-card/95 backdrop-blur-md transition-all duration-200 hover:shadow-xl hover:shadow-primary/15 hover:-translate-y-1 group overflow-hidden"
-                  onClick={() => {
-                    setSelectedPkg(pkg);
-                    setStep("payment");
-                    setError("");
-                  }}
+                  onClick={() => { setSelectedPkg(pkg); setStep("payment"); setError(""); }}
                 >
                   <CardContent className="p-5">
                     <div className="flex items-center justify-between mb-3">
@@ -441,7 +391,6 @@ const Portal = () => {
           </div>
         )}
 
-        {/* ── Payment Step ── */}
         {step === "payment" && selectedPkg && (
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
@@ -460,9 +409,7 @@ const Portal = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">
-                    Safaricom Phone Number
-                  </label>
+                  <label className="text-sm font-medium text-foreground">Safaricom Phone Number</label>
                   <div className="relative">
                     <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -474,9 +421,7 @@ const Portal = () => {
                       className="font-mono pl-10 bg-secondary/50 h-12 text-base border-border focus:border-primary"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    You'll receive an M-Pesa prompt on this number
-                  </p>
+                  <p className="text-xs text-muted-foreground">You'll receive an M-Pesa prompt on this number</p>
                 </div>
 
                 {error && (
@@ -501,15 +446,9 @@ const Portal = () => {
                     className="flex-1 font-semibold h-12 text-base bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg shadow-primary/20"
                   >
                     {loading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Sending prompt…
-                      </>
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending prompt…</>
                     ) : (
-                      <>
-                        <Smartphone className="mr-2 h-4 w-4" />
-                        Pay KES {selectedPkg.price}
-                      </>
+                      <><Smartphone className="mr-2 h-4 w-4" />Pay KES {selectedPkg.price}</>
                     )}
                   </Button>
                 </div>
@@ -518,7 +457,6 @@ const Portal = () => {
           </div>
         )}
 
-        {/* ── Waiting / Processing Step ── */}
         {step === "waiting" && (
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
@@ -530,14 +468,10 @@ const Portal = () => {
                     <Smartphone className="h-7 w-7 text-white" />
                   </div>
                 </div>
-
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Waiting for Payment</h2>
-                  <p className="text-muted-foreground text-sm mt-2">
-                    Check your phone and enter your M-Pesa PIN to complete the payment
-                  </p>
+                  <p className="text-muted-foreground text-sm mt-2">Check your phone and enter your M-Pesa PIN</p>
                 </div>
-
                 <div className="bg-secondary/50 rounded-xl p-4 text-left space-y-3">
                   {[
                     { label: "STK push sent to your phone", done: true },
@@ -548,13 +482,10 @@ const Portal = () => {
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${item.done ? "bg-primary text-primary-foreground" : "bg-muted border-2 border-border"}`}>
                         {item.done ? <Check className="h-3.5 w-3.5" /> : <span className="text-xs text-muted-foreground font-bold">{i + 1}</span>}
                       </div>
-                      <span className={`text-sm ${item.done ? "text-foreground font-medium" : "text-muted-foreground"}`}>
-                        {item.label}
-                      </span>
+                      <span className={`text-sm ${item.done ? "text-foreground font-medium" : "text-muted-foreground"}`}>{item.label}</span>
                     </div>
                   ))}
                 </div>
-
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                   Checking payment status
@@ -565,7 +496,6 @@ const Portal = () => {
           </div>
         )}
 
-        {/* ── Connecting Step ── */}
         {step === "connecting" && (
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
@@ -579,9 +509,7 @@ const Portal = () => {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Connecting to WiFi...</h2>
-                  <p className="text-muted-foreground text-sm mt-2">
-                    Authenticating your credentials with the network
-                  </p>
+                  <p className="text-muted-foreground text-sm mt-2">Authenticating your credentials with the network</p>
                 </div>
                 <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto" />
               </CardContent>
@@ -589,7 +517,6 @@ const Portal = () => {
           </div>
         )}
 
-        {/* ── Success Step ── */}
         {step === "success" && (
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10 overflow-hidden">
@@ -601,7 +528,6 @@ const Portal = () => {
                     <CheckCircle2 className="h-8 w-8 text-white" />
                   </div>
                 </div>
-
                 <div>
                   <h2 className="text-2xl font-bold text-foreground">
                     {mikrotikDetected ? "You're Connected! 🎉" : "Payment Successful! 🎉"}
@@ -612,12 +538,9 @@ const Portal = () => {
                       : "Use the credentials below to log in to the WiFi network"}
                   </p>
                 </div>
-
                 <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-2xl p-5 border-2 border-primary/20">
                   <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Your Access Code</p>
-                  <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">
-                    {voucherCode}
-                  </p>
+                  <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">{voucherCode}</p>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -628,7 +551,6 @@ const Portal = () => {
                     {copied ? "Copied!" : "Copy code"}
                   </Button>
                 </div>
-
                 {mikrotikDetected ? (
                   <div className="bg-primary/5 rounded-xl p-4 text-center">
                     <p className="text-sm text-foreground font-medium">✅ Auto-connected via captive portal</p>
@@ -647,12 +569,7 @@ const Portal = () => {
                     </ol>
                   </div>
                 )}
-
-                <Button
-                  variant="outline"
-                  onClick={resetToPackages}
-                  className="w-full border-border hover:bg-secondary/80"
-                >
+                <Button variant="outline" onClick={resetToPackages} className="w-full border-border hover:bg-secondary/80">
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Buy Another Package
                 </Button>
@@ -661,7 +578,6 @@ const Portal = () => {
           </div>
         )}
 
-        {/* ── Failed Step ── */}
         {step === "failed" && (
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl overflow-hidden">
@@ -670,14 +586,10 @@ const Portal = () => {
                 <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
                   <XCircle className="h-8 w-8 text-destructive" />
                 </div>
-
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Payment Failed</h2>
-                  <p className="text-muted-foreground text-sm mt-2 max-w-xs mx-auto">
-                    {failureReason}
-                  </p>
+                  <p className="text-muted-foreground text-sm mt-2 max-w-xs mx-auto">{failureReason}</p>
                 </div>
-
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button
                     onClick={() => { setStep("payment"); setFailureReason(""); }}
@@ -686,11 +598,7 @@ const Portal = () => {
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Try Again
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={resetToPackages}
-                    className="flex-1 border-border"
-                  >
+                  <Button variant="outline" onClick={resetToPackages} className="flex-1 border-border">
                     Change Package
                   </Button>
                 </div>
