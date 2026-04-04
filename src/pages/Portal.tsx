@@ -34,41 +34,50 @@ const FAILURE_CODES: Record<string, string> = {
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 
 /* ============================
-   MIKROTIK HELPERS — persistent params
+   MIKROTIK HELPERS — current session params
 ============================ */
-const saveParams = () => {
-  const params = window.location.search;
-  if (params.includes("link-login")) {
-    sessionStorage.setItem("mt_params", params);
-  }
+const getParams = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    linkLogin: params.get("link-login-only") || params.get("link-login") || "",
+    linkOrig: params.get("link-orig") || params.get("link-redirect") || window.location.origin,
+    mac: params.get("mac") || "",
+    ip: params.get("ip") || "",
+    chapId: params.get("chap-id") || "",
+    chapChallenge: params.get("chap-challenge") || "",
+  };
 };
 
-const getParams = () => {
-  let search = window.location.search;
-  const saved = sessionStorage.getItem("mt_params");
-  if (!search.includes("link-login") && saved) {
-    search = saved;
-  }
-  const p = new URLSearchParams(search);
-  return {
-    login: p.get("link-login-only") || p.get("link-login"),
-    orig: p.get("link-orig") || p.get("link-redirect") || "",
-    mac: p.get("mac") || "",
-    ip: p.get("ip") || "",
-  };
+const detectMikroTik = (): boolean => {
+  const mt = getParams();
+  return mt.linkLogin.length > 0 && mt.linkLogin.startsWith("http");
 };
 
 const loginMikroTik = (code: string) => {
   const mt = getParams();
-  const loginUrl = mt.login || "http://wifi.local/login";
-  const url =
-    loginUrl +
-    "?username=" + encodeURIComponent(code) +
-    "&password=" + encodeURIComponent(code) +
-    (mt.orig ? "&dst=" + encodeURIComponent(mt.orig) : "");
-  setTimeout(() => {
-    window.location.href = url;
-  }, 1000);
+  const loginUrl = mt.linkLogin || "http://wifi.local/login";
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = loginUrl;
+  form.style.display = "none";
+
+  const addField = (name: string, value: string) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  };
+
+  addField("username", code);
+  addField("password", code);
+  addField("dst", mt.linkOrig);
+  if (mt.chapId) addField("chap-id", mt.chapId);
+  if (mt.chapChallenge) addField("chap-challenge", mt.chapChallenge);
+
+  document.body.appendChild(form);
+  console.log("Submitting login form to:", loginUrl, "username:", code, "dst:", mt.linkOrig);
+  form.submit();
 };
 
 /* ============================
@@ -90,16 +99,15 @@ const Portal = () => {
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
 
-  /* Init — save params, detect MikroTik, auto-reconnect */
+  /* Init — detect MikroTik and auto-reconnect */
   useEffect(() => {
-    saveParams();
     const mt = getParams();
-    if (mt.login) setMikrotikDetected(true);
+    const detected = detectMikroTik();
+    setMikrotikDetected(detected);
 
-    // Auto-reconnect if user has active code stored
+    // Auto-reconnect if user has active code stored and this is a hotspot session
     const stored = localStorage.getItem("active_code");
-    if (stored && mt.login) {
-      // Verify the code is still valid before auto-reconnecting
+    if (stored && detected) {
       supabase
         .from("vouchers")
         .select("code, status, expires_at")
@@ -120,7 +128,6 @@ const Portal = () => {
         });
     }
 
-    // Fetch packages
     supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
       if (data) setPackages(data as Package[]);
     });

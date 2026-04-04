@@ -1,10 +1,10 @@
 project_id = "gvfbgxcetcamjdjvteji"
 
 [functions.mpesa-stk-push]
-verify_jwt = false
+verify_jwt = true
 
 [functions.daraja-stk-query]
-verify_jwt = false
+verify_jwt = true
 
 [functions.support-chat]
 verify_jwt = false
