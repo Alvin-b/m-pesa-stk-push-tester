@@ -1,0 +1,1 @@
+ALTER TABLE public.vouchers ADD COLUMN IF NOT EXISTS mac_address TEXT;

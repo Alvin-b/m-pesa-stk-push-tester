@@ -303,6 +303,7 @@ export type Database = {
           created_at: string
           expires_at: string | null
           id: string
+          mac_address: string | null
           mpesa_receipt: string | null
           package_id: string
           phone_number: string
@@ -317,6 +318,7 @@ export type Database = {
           created_at?: string
           expires_at?: string | null
           id?: string
+          mac_address?: string | null
           mpesa_receipt?: string | null
           package_id: string
           phone_number: string
@@ -331,6 +333,7 @@ export type Database = {
           created_at?: string
           expires_at?: string | null
           id?: string
+          mac_address?: string | null
           mpesa_receipt?: string | null
           package_id?: string
           phone_number?: string
