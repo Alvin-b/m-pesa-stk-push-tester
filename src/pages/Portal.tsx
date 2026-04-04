@@ -53,56 +53,25 @@ const getMikroTikParams = () => {
 // Attempt to log in via MikroTik's hotspot login endpoint
 const loginToMikroTik = (code: string): Promise<boolean> => {
   const mt = getMikroTikParams();
-
-  // If we have link-login-only or link-login, use it to POST credentials
   const loginUrl = mt.linkLoginOnly || mt.linkLogin;
+  const linkOrig = mt.linkOrig || "";
 
   if (!loginUrl) {
-    // No MikroTik params – user is not behind a captive portal (e.g. testing from browser)
+    // Not behind a captive portal (e.g. testing from browser)
     return Promise.resolve(false);
   }
 
-  // Build the login URL with credentials
-  // MikroTik expects username & password as query params on the login URL
-  const separator = loginUrl.includes("?") ? "&" : "?";
-  const fullUrl = `${loginUrl}${separator}username=${encodeURIComponent(code)}&password=${encodeURIComponent(code)}`;
-
-  // Use a hidden form to POST to MikroTik (works better than fetch due to cross-origin)
+  // Redirect the browser to MikroTik's login endpoint with credentials
+  // This is the most reliable method – MikroTik processes the login and redirects the user
   return new Promise((resolve) => {
-    // First try via a hidden iframe to avoid navigating away
-    const iframe = document.createElement("iframe");
-    iframe.style.display = "none";
-    iframe.name = "mikrotik-login-frame";
-    document.body.appendChild(iframe);
-
-    const form = document.createElement("form");
-    form.method = "POST";
-    form.action = loginUrl;
-    form.target = "mikrotik-login-frame";
-
-    const addField = (name: string, value: string) => {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = name;
-      input.value = value;
-      form.appendChild(input);
-    };
-
-    addField("username", code);
-    addField("password", code);
-    if (mt.mac) addField("dst", mt.linkOrig || "");
-    if (mt.chapId) addField("chap-id", mt.chapId);
-    if (mt.chapChallenge) addField("chap-challenge", mt.chapChallenge);
-
-    document.body.appendChild(form);
-    form.submit();
-
-    // Give MikroTik a moment to process, then redirect
     setTimeout(() => {
-      document.body.removeChild(form);
-      document.body.removeChild(iframe);
+      window.location.href =
+        loginUrl +
+        "?username=" + encodeURIComponent(code) +
+        "&password=" + encodeURIComponent(code) +
+        "&dst=" + encodeURIComponent(linkOrig);
       resolve(true);
-    }, 2000);
+    }, 1000);
   });
 };
 

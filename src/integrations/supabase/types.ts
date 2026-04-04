@@ -155,6 +155,30 @@ export type Database = {
         }
         Relationships: []
       }
+      radreply: {
+        Row: {
+          attribute: string
+          id: number
+          op: string
+          username: string
+          value: string
+        }
+        Insert: {
+          attribute?: string
+          id?: number
+          op?: string
+          username?: string
+          value?: string
+        }
+        Update: {
+          attribute?: string
+          id?: number
+          op?: string
+          username?: string
+          value?: string
+        }
+        Relationships: []
+      }
       router_settings: {
         Row: {
           api_password: string | null
@@ -273,6 +297,7 @@ export type Database = {
       }
       vouchers: {
         Row: {
+          activated_at: string | null
           checkout_request_id: string | null
           code: string
           created_at: string
@@ -281,10 +306,12 @@ export type Database = {
           mpesa_receipt: string | null
           package_id: string
           phone_number: string
+          session_timeout: number | null
           status: string
           used_at: string | null
         }
         Insert: {
+          activated_at?: string | null
           checkout_request_id?: string | null
           code: string
           created_at?: string
@@ -293,10 +320,12 @@ export type Database = {
           mpesa_receipt?: string | null
           package_id: string
           phone_number: string
+          session_timeout?: number | null
           status?: string
           used_at?: string | null
         }
         Update: {
+          activated_at?: string | null
           checkout_request_id?: string | null
           code?: string
           created_at?: string
@@ -305,6 +334,7 @@ export type Database = {
           mpesa_receipt?: string | null
           package_id?: string
           phone_number?: string
+          session_timeout?: number | null
           status?: string
           used_at?: string | null
         }
