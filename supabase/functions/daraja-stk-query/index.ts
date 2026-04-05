@@ -13,11 +13,10 @@ function getCorsHeaders(origin?: string): Record<string, string> {
   }) ? origin : ALLOWED_ORIGINS[2];
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
   };
 }
-
-const corsHeaders = getCorsHeaders();
 
 const resultCodeMap: Record<number, string> = {
   0: 'Transaction successful',
@@ -31,6 +30,7 @@ const resultCodeMap: Record<number, string> = {
 };
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req.headers.get('origin') || undefined);
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
