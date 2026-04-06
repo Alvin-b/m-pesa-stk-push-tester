@@ -227,7 +227,7 @@ const Admin = () => {
     setRevoking(id);
     try {
       await supabase.functions.invoke("revoke-voucher", { body: { voucherId: id, code } });
-      loadData();
+      setVouchers(prev => prev.filter(v => v.id !== id));
     } catch (err: any) {
       console.error(err);
     }
