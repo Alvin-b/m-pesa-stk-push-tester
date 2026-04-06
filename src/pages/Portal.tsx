@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Wifi, Loader2, CheckCircle2, XCircle, Zap, KeyRound,
-  ArrowLeft, Check, Smartphone, Copy, RefreshCw, Clock, LogOut
+  ArrowLeft, Check, Smartphone, Copy, RefreshCw, Clock
 } from "lucide-react";
 import SupportChat from "@/components/SupportChat";
 import networkBg from "@/assets/network-bg.png";
@@ -43,7 +43,6 @@ const getParams = () => {
     linkOrig: params.get("link-orig") || params.get("link-redirect") || window.location.origin,
     mac: params.get("mac") || "",
     ip: params.get("ip") || "",
-    username: params.get("username") || "",
     chapId: params.get("chap-id") || "",
     chapChallenge: params.get("chap-challenge") || "",
   };
@@ -81,17 +80,6 @@ const loginMikroTik = (code: string) => {
   form.submit();
 };
 
-const logoutMikroTik = () => {
-  const mt = getParams();
-  // Extract hotspot IP from login URL
-  const loginUrl = mt.linkLogin || "http://wifi.local/login";
-  const url = new URL(loginUrl);
-  const logoutUrl = `${url.protocol}//${url.hostname}/logout`;
-
-  // Redirect to logout URL
-  window.location.href = logoutUrl;
-};
-
 /* ============================
    COMPONENT
 ============================ */
@@ -110,45 +98,6 @@ const Portal = () => {
   const [mikrotikDetected, setMikrotikDetected] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
-  const [currentPackage, setCurrentPackage] = useState<Package | null>(null);
-  const [dataUsed, setDataUsed] = useState<{ upMb: number; downMb: number } | null>(null);
-  const [sessionUsername, setSessionUsername] = useState("");
-
-  const loadSessionData = async (username: string, mac?: string) => {
-    try {
-      let query = supabase
-        .from("radacct")
-        .select(`
-          acctinputoctets,
-          acctinputgigawords,
-          acctoutputoctets,
-          acctoutputgigawords
-        `)
-        .eq("username", username)
-        .gte("acctstarttime", new Date(Date.now() - 24*60*60*1000).toISOString()) // last 24h
-        .order("acctstarttime", { ascending: false })
-        .limit(1);
-
-      if (mac) {
-        query = query.eq("callingstationid", mac);
-      }
-
-      const { data: acctData } = await query.maybeSingle();
-
-      if (acctData) {
-        const upBytes = (BigInt(acctData.acctinputgigawords || 0) * BigInt(4_294_967_296n)) + BigInt(acctData.acctinputoctets || 0);
-        const downBytes = (BigInt(acctData.acctoutputgigawords || 0) * BigInt(4_294_967_296n)) + BigInt(acctData.acctoutputoctets || 0);
-        const upMb = Number(upBytes) / (1024 * 1024);
-        const downMb = Number(downBytes) / (1024 * 1024);
-        setDataUsed({ upMb: Math.round(upMb * 10) / 10, downMb: Math.round(downMb * 10) / 10 });
-      } else {
-        setDataUsed(null);
-      }
-    } catch (error) {
-      console.error("Failed to load session data:", error);
-      setDataUsed(null);
-    }
-  };
 
   /* Init — detect MikroTik and auto-reconnect */
   useEffect(() => {
@@ -207,7 +156,7 @@ const Portal = () => {
   /* ============================
      CONNECT USER — core logic with MAC binding
   ============================ */
-  const connectUser = async (voucher: string, voucherData?: any) => {
+  const connectUser = async (voucher: string) => {
     const mt = getParams();
 
     // MAC binding check
@@ -232,30 +181,15 @@ const Portal = () => {
         .eq("code", voucher);
     }
 
-    // Get expiry and package info for countdown
-    let data = voucherData;
-    if (!data) {
-      const result = await supabase
-        .from("vouchers")
-        .select("expires_at, packages(*)")
-        .eq("code", voucher)
-        .maybeSingle();
-      data = result.data;
-    }
+    // Get expiry for countdown
+    const { data: voucherData } = await supabase
+      .from("vouchers")
+      .select("expires_at")
+      .eq("code", voucher)
+      .maybeSingle();
 
-    if (data?.expires_at) {
-      setExpiresAt(new Date(data.expires_at));
-    }
-
-    if (data?.packages) {
-      setCurrentPackage(data.packages as Package);
-    }
-
-    // Load session data and usage
-    const mt2 = getParams();
-    if (mt2.username || mt2.mac) {
-      setSessionUsername(mt2.username || voucher);
-      await loadSessionData(mt2.username || voucher, mt2.mac);
+    if (voucherData?.expires_at) {
+      setExpiresAt(new Date(voucherData.expires_at));
     }
 
     // Store for auto-reconnect
@@ -304,7 +238,18 @@ const Portal = () => {
       return;
     }
 
-    // Skip radcheck verification due to RLS (admin-only); voucher status already checked
+    // Verify RADIUS credentials
+    const { data: radcheck } = await supabase
+      .from("radcheck")
+      .select("username")
+      .eq("username", voucher.code)
+      .maybeSingle();
+
+    if (!radcheck) {
+      setError("Your code is valid but RADIUS credentials are missing. Please contact support.");
+      setLoading(false);
+      return;
+    }
 
     // Check expiry
     if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
@@ -314,7 +259,7 @@ const Portal = () => {
     }
 
     setLoading(false);
-    await connectUser(voucher.code, voucher);
+    await connectUser(voucher.code);
   };
 
   /* ============================
@@ -365,13 +310,13 @@ const Portal = () => {
           clearInterval(poll);
           const { data: voucher } = await supabase
             .from("vouchers")
-            .select("code, packages(*)")
+            .select("code")
             .eq("checkout_request_id", checkoutRequestId)
             .maybeSingle();
 
           const code = voucher?.code || "CHECK ADMIN";
           if (code !== "CHECK ADMIN") {
-            await connectUser(code, voucher);
+            await connectUser(code);
           } else {
             setVoucherCode(code);
             setStep("success");
@@ -416,7 +361,6 @@ const Portal = () => {
     setPollCount(0);
     setExpiresAt(null);
     setTimeLeft("");
-    setCurrentPackage(null);
   };
 
   const formatDuration = (minutes: number) => {
@@ -683,7 +627,7 @@ const Portal = () => {
 
                 <div>
                   <h2 className="text-2xl font-bold text-foreground">
-                    Connected Successfully! 🎉
+                    {mikrotikDetected ? "You're Connected! 🎉" : "Payment Successful! 🎉"}
                   </h2>
                   <p className="text-muted-foreground text-sm mt-1">
                     {mikrotikDetected
@@ -692,42 +636,13 @@ const Portal = () => {
                   </p>
                 </div>
 
-                {/* Package Info */}
-                {currentPackage && (
-                  <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-xl p-4 border border-primary/20">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-semibold text-foreground capitalize">{currentPackage.name}</p>
-                      <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
-                        {currentPackage.speed_limit || "High Speed"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDuration(currentPackage.duration_minutes)} Access
-                    </p>
-                  </div>
-                )}
-
                 {/* Session countdown */}
-{timeLeft && (
+                {timeLeft && (
                   <div className="inline-flex items-center gap-2 bg-accent/10 border border-accent/20 rounded-full px-4 py-2">
                     <Clock className="h-4 w-4 text-accent" />
                     <span className="text-sm font-mono font-semibold text-foreground">
-                      {timeLeft === "Expired" ? "Session Expired" : `${timeLeft} remaining`}
+                      {timeLeft === "Expired" ? "Session Expired" : `Expires in: ${timeLeft}`}
                     </span>
-                  </div>
-                )}
-
-                {/* Data Usage */}
-                {dataUsed && (
-                  <div className="grid grid-cols-2 gap-2 text-xs bg-muted/50 rounded-lg p-3 border border-border/50">
-                    <div className="flex flex-col items-center">
-                      <span className="text-muted-foreground">↑ Upload</span>
-                      <span className="font-mono font-semibold text-foreground">{dataUsed.upMb.toLocaleString()} MB</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <span className="text-muted-foreground">↓ Download</span>
-                      <span className="font-mono font-semibold text-foreground">{dataUsed.downMb.toLocaleString()} MB</span>
-                    </div>
                   </div>
                 )}
 
@@ -742,20 +657,11 @@ const Portal = () => {
                 </div>
 
                 {mikrotikDetected ? (
-                  <div className="space-y-3">
-                    <div className="bg-primary/5 rounded-xl p-4 text-center">
-                      <p className="text-sm text-foreground font-medium">✅ Auto-connected via captive portal</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        If you still can't browse, try opening a new tab or refreshing.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={logoutMikroTik}
-                      className="w-full border-destructive/20 text-destructive hover:bg-destructive/5"
-                    >
-                      <LogOut className="h-4 w-4 mr-2" /> Logout
-                    </Button>
+                  <div className="bg-primary/5 rounded-xl p-4 text-center">
+                    <p className="text-sm text-foreground font-medium">✅ Auto-connected via captive portal</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      If you still can't browse, try opening a new tab or refreshing.
+                    </p>
                   </div>
                 ) : (
                   <div className="bg-secondary/50 rounded-xl p-4 text-left">
