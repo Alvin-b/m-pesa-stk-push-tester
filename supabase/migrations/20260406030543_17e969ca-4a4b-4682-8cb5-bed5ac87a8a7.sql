@@ -1,0 +1,1 @@
+ALTER TABLE public.packages ADD COLUMN device_limit integer NOT NULL DEFAULT 1;

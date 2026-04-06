@@ -1,16 +1,19 @@
 project_id = "gvfbgxcetcamjdjvteji"
 
 [functions.mpesa-stk-push]
-verify_jwt = true
+verify_jwt = false
 
 [functions.daraja-stk-query]
-verify_jwt = true
+verify_jwt = false
 
 [functions.support-chat]
 verify_jwt = false
 
 [functions.generate-voucher]
-verify_jwt = true
+verify_jwt = false
 
 [functions.revoke-voucher]
-verify_jwt = true
+verify_jwt = false
+
+[functions.radius-auth]
+verify_jwt = false
