@@ -90,7 +90,7 @@ const Admin = () => {
   const [activeSection, setActiveSection] = useState<ActiveSection>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "" });
+  const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "", device_limit: 1 });
   const [savingPkg, setSavingPkg] = useState(false);
   const [routerForm, setRouterForm] = useState({ 
     router_name: "Main Router", 
