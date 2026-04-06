@@ -1,10 +1,24 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
+// Update ALLOWED_ORIGINS with your production domain
+const ALLOWED_ORIGINS = ['http://localhost:5173', 'http://localhost:3000', 'https://your-domain.com', 'https://*.lovable.dev', 'https://lovable.dev'];
+
+function getCorsHeaders(origin?: string): Record<string, string> {
+  const allowedOrigin = origin && ALLOWED_ORIGINS.some(allowed => {
+    if (allowed.includes('*')) {
+      const regex = new RegExp(allowed.replace('*', '.*'));
+      return regex.test(origin);
+    }
+    return allowed === origin;
+  }) ? origin : ALLOWED_ORIGINS[2];
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  };
+}
+
+const corsHeaders = getCorsHeaders();
 
 function generateVoucherCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -125,12 +139,8 @@ serve(async (req) => {
       const sb = createClient(supabaseUrl, supabaseKey);
 
       // Get package duration for session timeout
-      const { data: pkg } = await sb.from('packages').select('duration_minutes, speed_limit').eq('id', packageId).single();
+      const { data: pkg } = await sb.from('packages').select('duration_minutes').eq('id', packageId).single();
       const sessionTimeout = pkg?.duration_minutes ? pkg.duration_minutes * 60 : 3600;
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + sessionTimeout * 1000);
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const expiration = `${monthNames[expiresAt.getMonth()]} ${String(expiresAt.getDate()).padStart(2, '0')} ${expiresAt.getFullYear()} ${String(expiresAt.getHours()).padStart(2, '0')}:${String(expiresAt.getMinutes()).padStart(2, '0')}:${String(expiresAt.getSeconds()).padStart(2, '0')}`;
 
       const code = generateVoucherCode();
       await sb.from('vouchers').insert({
@@ -138,24 +148,18 @@ serve(async (req) => {
         package_id: packageId,
         phone_number: formattedPhone,
         checkout_request_id: stkData.CheckoutRequestID,
-        expires_at: expiresAt.toISOString(),
         status: 'active',
       });
 
-      // Add RADIUS credentials and expiration
+      // Add to radcheck for RADIUS authentication
       await sb.from('radcheck').insert([
         { username: code, attribute: 'Cleartext-Password', op: ':=', value: code },
-        { username: code, attribute: 'Session-Timeout', op: ':=', value: String(sessionTimeout) },
-        { username: code, attribute: 'Expiration', op: ':=', value: expiration },
       ]);
 
-      const replyRows = [
-        { username: code, attribute: 'Session-Timeout', op: '=', value: String(sessionTimeout) },
-      ];
-      if (pkg?.speed_limit) {
-        replyRows.push({ username: code, attribute: 'Mikrotik-Rate-Limit', op: '=', value: pkg.speed_limit });
-      }
-      await sb.from('radreply').insert(replyRows);
+      // Add session timeout to radreply
+      await sb.from('radreply').insert([
+        { username: code, attribute: 'Session-Timeout', op: ':=', value: String(sessionTimeout) },
+      ]);
     }
 
     return new Response(JSON.stringify({ success: true, data: stkData }), {
