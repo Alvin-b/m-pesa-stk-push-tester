@@ -10,10 +10,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.generate-voucher]
-verify_jwt = true
+verify_jwt = false
 
 [functions.revoke-voucher]
-verify_jwt = true
+verify_jwt = false
 
 [functions.radius-auth]
 verify_jwt = false
