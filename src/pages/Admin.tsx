@@ -870,7 +870,10 @@ const Admin = () => {
                       <p className="text-[10px] text-muted-foreground mt-0.5">{p.description || formatDuration(p.duration_minutes)}</p>
                       <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                         <span className="font-mono font-bold text-primary">KES {p.price}</span>
-                        {p.speed_limit && <span className="text-[10px] font-mono text-muted-foreground">{p.speed_limit}</span>}
+                        <div className="flex items-center gap-2">
+                          {(p as any).device_limit > 1 && <span className="text-[10px] font-mono text-muted-foreground">{(p as any).device_limit} devices</span>}
+                          {p.speed_limit && <span className="text-[10px] font-mono text-muted-foreground">{p.speed_limit}</span>}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
