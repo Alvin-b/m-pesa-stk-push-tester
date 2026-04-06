@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Wifi, Loader2, CheckCircle2, XCircle, Zap, KeyRound,
-  ArrowLeft, Check, Smartphone, Copy, RefreshCw, Clock
+  ArrowLeft, Check, Smartphone, Copy, RefreshCw
 } from "lucide-react";
 import SupportChat from "@/components/SupportChat";
 import networkBg from "@/assets/network-bg.png";
@@ -33,47 +33,84 @@ const FAILURE_CODES: Record<string, string> = {
 
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 
-/* ============================
-   MIKROTIK HELPERS — persistent params
-============================ */
-const saveParams = () => {
-  const params = window.location.search;
-  if (params.includes("link-login")) {
-    sessionStorage.setItem("mt_params", params);
+// ─── FIX 1: Improved MikroTik detection ───────────────────────────────────────
+// Save params to sessionStorage so they survive any JS-router navigation,
+// and detect all common MikroTik captive portal param names.
+const detectMikroTik = (): boolean => {
+  const params = new URLSearchParams(window.location.search);
+  const hasMikroTikParams =
+    params.has("link-login-only") ||
+    params.has("link-login") ||
+    params.has("chap-id") ||
+    params.has("mac") ||
+    params.has("link-orig");
+
+  if (hasMikroTikParams) {
+    // Persist so we still know we're behind a portal after any re-render
+    sessionStorage.setItem("mikrotik_params", window.location.search);
+    return true;
   }
+  // Fall back to previously saved params (e.g. after a re-render)
+  return !!sessionStorage.getItem("mikrotik_params");
 };
 
-const getParams = () => {
+// ─── FIX 2: Always read params from sessionStorage as fallback ─────────────────
+const getMikroTikParams = () => {
   let search = window.location.search;
-  const saved = sessionStorage.getItem("mt_params");
-  if (!search.includes("link-login") && saved) {
+  const saved = sessionStorage.getItem("mikrotik_params");
+  if (!new URLSearchParams(search).has("link-login-only") && saved) {
     search = saved;
   }
-  const p = new URLSearchParams(search);
+  const params = new URLSearchParams(search);
   return {
-    login: p.get("link-login-only") || p.get("link-login"),
-    orig: p.get("link-orig") || p.get("link-redirect") || "",
-    mac: p.get("mac") || "",
-    ip: p.get("ip") || "",
+    linkLoginOnly: params.get("link-login-only") || params.get("link-login"),
+    linkOrig: params.get("link-orig") || params.get("link-redirect"),
+    mac: params.get("mac"),
+    chapId: params.get("chap-id"),
+    chapChallenge: params.get("chap-challenge"),
+    linkLogin: params.get("link-login"),
   };
 };
 
-const loginMikroTik = (code: string) => {
-  const mt = getParams();
-  const loginUrl = mt.login || "http://wifi.local/login";
-  const url =
-    loginUrl +
-    "?username=" + encodeURIComponent(code) +
-    "&password=" + encodeURIComponent(code) +
-    (mt.orig ? "&dst=" + encodeURIComponent(mt.orig) : "");
-  setTimeout(() => {
-    window.location.href = url;
-  }, 1000);
+// ─── FIX 3: Real page-level POST — not an iframe ───────────────────────────────
+// An iframe POST is blocked by MikroTik (cross-origin) and doesn't trigger
+// the RADIUS session or the redirect to the user's original destination.
+// Submitting in the same window lets MikroTik authenticate via RADIUS and
+// then redirect the browser to link-orig, which "closes" the captive portal.
+const loginToMikroTik = (code: string): void => {
+  const mt = getMikroTikParams();
+  const loginUrl = mt.linkLoginOnly || mt.linkLogin;
+
+  if (!loginUrl) {
+    // Not behind a captive portal (e.g. testing from a regular browser)
+    return;
+  }
+
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = loginUrl;
+  // No `target` — submit in the same window so MikroTik can redirect us
+  form.style.display = "none";
+
+  const addField = (name: string, value: string) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  };
+
+  addField("username", code);
+  addField("password", code);
+  if (mt.linkOrig) addField("dst", mt.linkOrig);   // where to redirect after login
+  if (mt.chapId) addField("chap-id", mt.chapId);
+  if (mt.chapChallenge) addField("chap-challenge", mt.chapChallenge);
+  if (mt.mac) addField("mac", mt.mac);
+
+  document.body.appendChild(form);
+  form.submit(); // browser navigates away → MikroTik handles RADIUS + redirect
 };
 
-/* ============================
-   COMPONENT
-============================ */
 const Portal = () => {
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedPkg, setSelectedPkg] = useState<Package | null>(null);
@@ -87,126 +124,41 @@ const Portal = () => {
   const [copied, setCopied] = useState(false);
   const [pollCount, setPollCount] = useState(0);
   const [mikrotikDetected, setMikrotikDetected] = useState(false);
-  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
-  const [timeLeft, setTimeLeft] = useState("");
 
-  /* Init — save params, detect MikroTik, auto-reconnect */
   useEffect(() => {
-    saveParams();
-    const mt = getParams();
-    if (mt.login) setMikrotikDetected(true);
-
-    // Auto-reconnect if user has active code stored
-    const stored = localStorage.getItem("active_code");
-    if (stored && mt.login) {
-      // Verify the code is still valid before auto-reconnecting
-      supabase
-        .from("vouchers")
-        .select("code, status, expires_at")
-        .eq("code", stored)
-        .eq("status", "active")
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data) {
-            const expired = data.expires_at && new Date(data.expires_at) < new Date();
-            if (!expired) {
-              loginMikroTik(data.code);
-            } else {
-              localStorage.removeItem("active_code");
-            }
-          } else {
-            localStorage.removeItem("active_code");
-          }
-        });
-    }
-
-    // Fetch packages
     supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
       if (data) setPackages(data as Package[]);
     });
+    setMikrotikDetected(detectMikroTik());
   }, []);
 
-  /* Session countdown timer */
-  useEffect(() => {
-    if (!expiresAt) return;
-    const interval = setInterval(() => {
-      const diff = expiresAt.getTime() - Date.now();
-      if (diff <= 0) {
-        setTimeLeft("Expired");
-        localStorage.removeItem("active_code");
-        clearInterval(interval);
-        return;
-      }
-      const hours = Math.floor(diff / 3600000);
-      const mins = Math.floor((diff % 3600000) / 60000);
-      const secs = Math.floor((diff % 60000) / 1000);
-      if (hours > 0) setTimeLeft(`${hours}h ${mins}m ${secs}s`);
-      else setTimeLeft(`${mins}m ${secs}s`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [expiresAt]);
+  // ─── FIX 4: Single shared connect function used by BOTH flows ───────────────
+  // Shows the "Connecting" screen so the user sees feedback, then fires the
+  // real MikroTik form POST which navigates the browser away and closes the portal.
+  // The "success" step is set as a fallback in case the redirect is slow.
+  const connectUser = async (code: string) => {
+    setVoucherCode(code);
 
-  /* ============================
-     CONNECT USER — core logic with MAC binding
-  ============================ */
-  const connectUser = async (voucher: string) => {
-    const mt = getParams();
-
-    // MAC binding check
-    if (mt.mac) {
-      const { data: existing } = await supabase
-        .from("vouchers")
-        .select("mac_address")
-        .eq("code", voucher)
-        .maybeSingle();
-
-      if (existing?.mac_address && existing.mac_address !== mt.mac) {
-        setError("This voucher is already used on another device.");
-        setStep("packages");
-        setLoading(false);
-        return;
-      }
-
-      // Save MAC address to voucher
-      await supabase
-        .from("vouchers")
-        .update({ mac_address: mt.mac })
-        .eq("code", voucher);
-    }
-
-    // Get expiry for countdown
-    const { data: voucherData } = await supabase
-      .from("vouchers")
-      .select("expires_at")
-      .eq("code", voucher)
-      .maybeSingle();
-
-    if (voucherData?.expires_at) {
-      setExpiresAt(new Date(voucherData.expires_at));
-    }
-
-    // Store for auto-reconnect
-    localStorage.setItem("active_code", voucher);
-    setVoucherCode(voucher);
-
-    // Login to MikroTik
     if (mikrotikDetected) {
       setStep("connecting");
-      loginMikroTik(voucher);
+      // Brief pause so the user sees the connecting animation
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // This navigates the browser to MikroTik which authenticates via RADIUS
+      // and redirects to the user's original destination — closing the portal.
+      loginToMikroTik(code);
+      // Fallback: if redirect is slow or user navigates back, show success screen
+      setStep("success");
     } else {
+      // Not behind captive portal — just show success with manual instructions
       setStep("success");
     }
   };
 
-  /* ============================
-     MANUAL CODE / RECEIPT LOGIN
-  ============================ */
   const handleAccessInput = async () => {
     setLoading(true);
     setError("");
     const code = accessInput.trim().toUpperCase();
 
-    // Try as access code first
     let { data: voucher } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
@@ -214,7 +166,6 @@ const Portal = () => {
       .eq("status", "active")
       .maybeSingle();
 
-    // Try as M-Pesa receipt
     if (!voucher) {
       const { data: receipt } = await supabase
         .from("vouchers")
@@ -231,7 +182,6 @@ const Portal = () => {
       return;
     }
 
-    // Verify RADIUS credentials
     const { data: radcheck } = await supabase
       .from("radcheck")
       .select("username")
@@ -244,7 +194,6 @@ const Portal = () => {
       return;
     }
 
-    // Check expiry
     if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
       setError("This code has expired. Please purchase a new package.");
       setLoading(false);
@@ -255,9 +204,6 @@ const Portal = () => {
     await connectUser(voucher.code);
   };
 
-  /* ============================
-     PAYMENT FLOW
-  ============================ */
   const handlePayment = async () => {
     if (!selectedPkg || !phone) return;
     setLoading(true);
@@ -286,7 +232,7 @@ const Portal = () => {
       setPollCount(0);
 
       let attempts = 0;
-      const maxAttempts = 40;
+      const maxAttempts = 40; // ~2 minutes
       const poll = setInterval(async () => {
         attempts++;
         setPollCount(attempts);
@@ -297,26 +243,41 @@ const Portal = () => {
 
         const resultCode = queryData?.resultCode;
 
+        // Still processing — keep waiting
         if (PROCESSING_CODES.has(resultCode)) return;
 
+        // Payment successful
         if (queryData?.success === true || resultCode === 0 || resultCode === "0") {
           clearInterval(poll);
-          const { data: voucher } = await supabase
-            .from("vouchers")
-            .select("code")
-            .eq("checkout_request_id", checkoutRequestId)
-            .maybeSingle();
 
-          const code = voucher?.code || "CHECK ADMIN";
-          if (code !== "CHECK ADMIN") {
+          // Call confirm-payment which activates the voucher and creates
+          // RADIUS credentials — only now that payment is verified
+          const { data: confirmData, error: confirmError } = await supabase.functions.invoke("confirm-payment", {
+            body: {
+              checkoutRequestId,
+              mpesaReceipt: queryData?.data?.MpesaReceiptNumber || null,
+            },
+          });
+
+          const code = confirmData?.code || "CHECK ADMIN";
+
+          if (!confirmError && code !== "CHECK ADMIN") {
             await connectUser(code);
           } else {
-            setVoucherCode(code);
+            // Fallback: try direct DB lookup
+            const { data: voucher } = await supabase
+              .from("vouchers")
+              .select("code")
+              .eq("checkout_request_id", checkoutRequestId)
+              .maybeSingle();
+            const fallbackCode = voucher?.code || "CHECK ADMIN";
+            setVoucherCode(fallbackCode);
             setStep("success");
           }
           return;
         }
 
+        // Known terminal failure
         if (resultCode !== undefined && !PROCESSING_CODES.has(resultCode)) {
           const codeStr = String(resultCode);
           const reason = FAILURE_CODES[codeStr] || queryData?.meaning || "Payment was not completed. Please try again.";
@@ -326,6 +287,7 @@ const Portal = () => {
           return;
         }
 
+        // Timeout
         if (attempts >= maxAttempts) {
           clearInterval(poll);
           setFailureReason("Payment timed out. If money was deducted, please contact support.");
@@ -352,15 +314,13 @@ const Portal = () => {
     setError("");
     setFailureReason("");
     setPollCount(0);
-    setExpiresAt(null);
-    setTimeLeft("");
   };
 
   const formatDuration = (minutes: number) => {
-    if (minutes >= 43200) return `${Math.floor(minutes / 43200)} Month${Math.floor(minutes / 43200) > 1 ? 's' : ''}`;
-    if (minutes >= 10080) return `${Math.floor(minutes / 10080)} Week${Math.floor(minutes / 10080) > 1 ? 's' : ''}`;
-    if (minutes >= 1440) return `${Math.floor(minutes / 1440)} Day${Math.floor(minutes / 1440) > 1 ? 's' : ''}`;
-    if (minutes >= 60) return `${Math.floor(minutes / 60)} Hour${Math.floor(minutes / 60) > 1 ? 's' : ''}`;
+    if (minutes >= 43200) return `${Math.floor(minutes / 43200)} Month${Math.floor(minutes / 43200) > 1 ? "s" : ""}`;
+    if (minutes >= 10080) return `${Math.floor(minutes / 10080)} Week${Math.floor(minutes / 10080) > 1 ? "s" : ""}`;
+    if (minutes >= 1440) return `${Math.floor(minutes / 1440)} Day${Math.floor(minutes / 1440) > 1 ? "s" : ""}`;
+    if (minutes >= 60) return `${Math.floor(minutes / 60)} Hour${Math.floor(minutes / 60) > 1 ? "s" : ""}`;
     return `${minutes} Min`;
   };
 
@@ -403,7 +363,6 @@ const Portal = () => {
         {/* ── Packages Step ── */}
         {step === "packages" && (
           <div className="max-w-lg mx-auto space-y-6 mt-2">
-            {/* Code input */}
             <Card className="border-primary/20 bg-card/95 backdrop-blur-md shadow-xl shadow-primary/10 overflow-hidden">
               <div className="h-1 bg-gradient-to-r from-primary to-accent" />
               <CardContent className="p-5">
@@ -439,7 +398,6 @@ const Portal = () => {
               <div className="flex-1 h-px bg-border" />
             </div>
 
-            {/* Plans */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {packages.map((pkg) => (
                 <Card
@@ -464,7 +422,9 @@ const Portal = () => {
                       {pkg.name}
                     </h3>
                     <div className="flex items-baseline gap-1 mt-1">
-                      <span className="text-2xl font-bold text-foreground">KES {pkg.price % 1 === 0 ? pkg.price.toFixed(0) : pkg.price.toFixed(2)}</span>
+                      <span className="text-2xl font-bold text-foreground">
+                        KES {pkg.price % 1 === 0 ? pkg.price.toFixed(0) : pkg.price.toFixed(2)}
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
                       {getFeatures(pkg).map((feature, i) => (
@@ -500,7 +460,9 @@ const Portal = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Safaricom Phone Number</label>
+                  <label className="text-sm font-medium text-foreground">
+                    Safaricom Phone Number
+                  </label>
                   <div className="relative">
                     <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -512,7 +474,9 @@ const Portal = () => {
                       className="font-mono pl-10 bg-secondary/50 h-12 text-base border-border focus:border-primary"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">You'll receive an M-Pesa prompt on this number</p>
+                  <p className="text-xs text-muted-foreground">
+                    You'll receive an M-Pesa prompt on this number
+                  </p>
                 </div>
 
                 {error && (
@@ -523,8 +487,13 @@ const Portal = () => {
                 )}
 
                 <div className="flex gap-3">
-                  <Button variant="outline" onClick={() => { setStep("packages"); setError(""); }} className="font-mono border-border hover:bg-secondary/80">
-                    <ArrowLeft className="h-4 w-4 mr-1" /> Back
+                  <Button
+                    variant="outline"
+                    onClick={() => { setStep("packages"); setError(""); }}
+                    className="font-mono border-border hover:bg-secondary/80"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-1" />
+                    Back
                   </Button>
                   <Button
                     onClick={handlePayment}
@@ -532,9 +501,15 @@ const Portal = () => {
                     className="flex-1 font-semibold h-12 text-base bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg shadow-primary/20"
                   >
                     {loading ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending prompt…</>
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sending prompt…
+                      </>
                     ) : (
-                      <><Smartphone className="mr-2 h-4 w-4" /> Pay KES {selectedPkg.price}</>
+                      <>
+                        <Smartphone className="mr-2 h-4 w-4" />
+                        Pay KES {selectedPkg.price}
+                      </>
                     )}
                   </Button>
                 </div>
@@ -543,7 +518,7 @@ const Portal = () => {
           </div>
         )}
 
-        {/* ── Waiting Step ── */}
+        {/* ── Waiting / Processing Step ── */}
         {step === "waiting" && (
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
@@ -555,24 +530,31 @@ const Portal = () => {
                     <Smartphone className="h-7 w-7 text-white" />
                   </div>
                 </div>
+
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Waiting for Payment</h2>
-                  <p className="text-muted-foreground text-sm mt-2">Check your phone and enter your M-Pesa PIN</p>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    Check your phone and enter your M-Pesa PIN to complete the payment
+                  </p>
                 </div>
+
                 <div className="bg-secondary/50 rounded-xl p-4 text-left space-y-3">
                   {[
                     { label: "STK push sent to your phone", done: true },
                     { label: "Enter your M-Pesa PIN when prompted", done: false },
-                    { label: "Auto-connect after payment", done: false },
+                    { label: "Access code will appear automatically", done: false },
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-3">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${item.done ? "bg-primary text-primary-foreground" : "bg-muted border-2 border-border"}`}>
                         {item.done ? <Check className="h-3.5 w-3.5" /> : <span className="text-xs text-muted-foreground font-bold">{i + 1}</span>}
                       </div>
-                      <span className={`text-sm ${item.done ? "text-foreground font-medium" : "text-muted-foreground"}`}>{item.label}</span>
+                      <span className={`text-sm ${item.done ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                        {item.label}
+                      </span>
                     </div>
                   ))}
                 </div>
+
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                   Checking payment status
@@ -597,7 +579,9 @@ const Portal = () => {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Connecting to WiFi...</h2>
-                  <p className="text-muted-foreground text-sm mt-2">Authenticating with the network</p>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    Authenticating your credentials with the network
+                  </p>
                 </div>
                 <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto" />
               </CardContent>
@@ -624,26 +608,22 @@ const Portal = () => {
                   </h2>
                   <p className="text-muted-foreground text-sm mt-1">
                     {mikrotikDetected
-                      ? "Your device has been authenticated — enjoy the internet!"
+                      ? "Your device has been authenticated — you should now have internet access"
                       : "Use the credentials below to log in to the WiFi network"}
                   </p>
                 </div>
 
-                {/* Session countdown */}
-                {timeLeft && (
-                  <div className="inline-flex items-center gap-2 bg-accent/10 border border-accent/20 rounded-full px-4 py-2">
-                    <Clock className="h-4 w-4 text-accent" />
-                    <span className="text-sm font-mono font-semibold text-foreground">
-                      {timeLeft === "Expired" ? "Session Expired" : `Expires in: ${timeLeft}`}
-                    </span>
-                  </div>
-                )}
-
-                {/* Voucher code box */}
                 <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-2xl p-5 border-2 border-primary/20">
                   <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Your Access Code</p>
-                  <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">{voucherCode}</p>
-                  <Button variant="ghost" size="sm" onClick={handleCopyCode} className="mt-3 text-xs text-muted-foreground hover:text-primary gap-1.5">
+                  <p className="text-3xl font-mono font-bold tracking-[0.3em] text-primary">
+                    {voucherCode}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyCode}
+                    className="mt-3 text-xs text-muted-foreground hover:text-primary gap-1.5"
+                  >
                     {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
                     {copied ? "Copied!" : "Copy code"}
                   </Button>
@@ -653,7 +633,7 @@ const Portal = () => {
                   <div className="bg-primary/5 rounded-xl p-4 text-center">
                     <p className="text-sm text-foreground font-medium">✅ Auto-connected via captive portal</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      If you still can't browse, try opening a new tab or refreshing.
+                      If you still can't browse, try opening a new tab or refreshing your browser.
                     </p>
                   </div>
                 ) : (
@@ -668,8 +648,13 @@ const Portal = () => {
                   </div>
                 )}
 
-                <Button variant="outline" onClick={resetToPackages} className="w-full border-border hover:bg-secondary/80">
-                  <RefreshCw className="h-4 w-4 mr-2" /> Buy Another Package
+                <Button
+                  variant="outline"
+                  onClick={resetToPackages}
+                  className="w-full border-border hover:bg-secondary/80"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Buy Another Package
                 </Button>
               </CardContent>
             </Card>
@@ -685,18 +670,27 @@ const Portal = () => {
                 <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
                   <XCircle className="h-8 w-8 text-destructive" />
                 </div>
+
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Payment Failed</h2>
-                  <p className="text-muted-foreground text-sm mt-2 max-w-xs mx-auto">{failureReason}</p>
+                  <p className="text-muted-foreground text-sm mt-2 max-w-xs mx-auto">
+                    {failureReason}
+                  </p>
                 </div>
+
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button
                     onClick={() => { setStep("payment"); setFailureReason(""); }}
                     className="flex-1 bg-gradient-to-r from-primary to-accent text-white hover:opacity-90"
                   >
-                    <RefreshCw className="h-4 w-4 mr-2" /> Try Again
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Try Again
                   </Button>
-                  <Button variant="outline" onClick={resetToPackages} className="flex-1 border-border">
+                  <Button
+                    variant="outline"
+                    onClick={resetToPackages}
+                    className="flex-1 border-border"
+                  >
                     Change Package
                   </Button>
                 </div>
