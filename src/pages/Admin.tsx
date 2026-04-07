@@ -194,8 +194,9 @@ const Admin = () => {
       duration_minutes: durationMinutes,
       price: newPkg.price,
       speed_limit: newPkg.speed_limit || null,
+      device_limit: newPkg.device_limit,
     }]);
-    setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "" });
+    setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "", device_limit: 1 });
     setSavingPkg(false);
     loadData();
   };
