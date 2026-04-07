@@ -842,6 +842,10 @@ const Admin = () => {
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Speed Limit</label>
                       <Input placeholder="e.g. 5M/5M (optional)" value={newPkg.speed_limit} onChange={e => setNewPkg({ ...newPkg, speed_limit: e.target.value })} className="font-mono bg-muted/50 text-sm" />
                     </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Device Limit</label>
+                      <Input type="number" min={1} max={10} value={newPkg.device_limit} onChange={e => setNewPkg({ ...newPkg, device_limit: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })} className="font-mono bg-muted/50 text-sm" />
+                    </div>
                   </div>
                   <Button onClick={addPackage} disabled={savingPkg || !newPkg.name} className="font-mono text-xs">
                     {savingPkg ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
