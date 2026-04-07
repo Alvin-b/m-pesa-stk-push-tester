@@ -118,34 +118,48 @@ serve(async (req) => {
       });
     }
 
-    // Create voucher in pending state if packageId provided
+    // Create voucher as active immediately with full RADIUS credentials
     if (packageId) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const sb = createClient(supabaseUrl, supabaseKey);
 
-      // Get package duration for session timeout
-      const { data: pkg } = await sb.from('packages').select('duration_minutes').eq('id', packageId).single();
-      const sessionTimeout = pkg?.duration_minutes ? pkg.duration_minutes * 60 : 3600;
+      const { data: pkg } = await sb.from('packages').select('duration_minutes, speed_limit').eq('id', packageId).single();
+      const durationSeconds = pkg?.duration_minutes ? pkg.duration_minutes * 60 : 3600;
+      const speedLimit = pkg?.speed_limit || null;
+
+      // Calculate expiry
+      const expiresAt = new Date(Date.now() + durationSeconds * 1000);
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const expirationStr = `${months[expiresAt.getMonth()]} ${String(expiresAt.getDate()).padStart(2,'0')} ${expiresAt.getFullYear()} ${String(expiresAt.getHours()).padStart(2,'0')}:${String(expiresAt.getMinutes()).padStart(2,'0')}:${String(expiresAt.getSeconds()).padStart(2,'0')}`;
 
       const code = generateVoucherCode();
+
       await sb.from('vouchers').insert({
         code,
         package_id: packageId,
         phone_number: formattedPhone,
         checkout_request_id: stkData.CheckoutRequestID,
         status: 'active',
+        expires_at: expiresAt.toISOString(),
+        session_timeout: durationSeconds,
       });
 
-      // Add to radcheck for RADIUS authentication
+      // radcheck: Password + Session-Timeout + Expiration
       await sb.from('radcheck').insert([
         { username: code, attribute: 'Cleartext-Password', op: ':=', value: code },
+        { username: code, attribute: 'Session-Timeout', op: ':=', value: String(durationSeconds) },
+        { username: code, attribute: 'Expiration', op: ':=', value: expirationStr },
       ]);
 
-      // Add session timeout to radreply
-      await sb.from('radreply').insert([
-        { username: code, attribute: 'Session-Timeout', op: ':=', value: String(sessionTimeout) },
-      ]);
+      // radreply: Session-Timeout + Mikrotik-Rate-Limit
+      const radreplyRows: { username: string; attribute: string; op: string; value: string }[] = [
+        { username: code, attribute: 'Session-Timeout', op: '=', value: String(durationSeconds) },
+      ];
+      if (speedLimit) {
+        radreplyRows.push({ username: code, attribute: 'Mikrotik-Rate-Limit', op: '=', value: speedLimit });
+      }
+      await sb.from('radreply').insert(radreplyRows);
     }
 
     return new Response(JSON.stringify({ success: true, data: stkData }), {

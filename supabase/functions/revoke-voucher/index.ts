@@ -31,9 +31,10 @@ serve(async (req) => {
     // Deactivate sessions
     await supabase.from("sessions").update({ is_active: false }).eq("voucher_id", voucherId);
 
-    // Remove from radcheck
+    // Remove from radcheck AND radreply
     if (code) {
       await supabase.from("radcheck").delete().eq("username", code);
+      await supabase.from("radreply").delete().eq("username", code);
     }
 
     return new Response(JSON.stringify({ success: true }), {
