@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.revoke-voucher]
 verify_jwt = false
+
+[functions.confirm-payment]
+verify_jwt = false
+
+[functions.cleanup-expired]
+verify_jwt = false
