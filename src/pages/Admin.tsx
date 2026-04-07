@@ -90,7 +90,7 @@ const Admin = () => {
   const [activeSection, setActiveSection] = useState<ActiveSection>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "" });
+  const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "", device_limit: 1 });
   const [savingPkg, setSavingPkg] = useState(false);
   const [routerForm, setRouterForm] = useState({ 
     router_name: "Main Router", 
@@ -194,8 +194,9 @@ const Admin = () => {
       duration_minutes: durationMinutes,
       price: newPkg.price,
       speed_limit: newPkg.speed_limit || null,
+      device_limit: newPkg.device_limit,
     }]);
-    setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "" });
+    setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "", device_limit: 1 });
     setSavingPkg(false);
     loadData();
   };
@@ -840,6 +841,10 @@ const Admin = () => {
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Speed Limit</label>
                       <Input placeholder="e.g. 5M/5M (optional)" value={newPkg.speed_limit} onChange={e => setNewPkg({ ...newPkg, speed_limit: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Device Limit</label>
+                      <Input type="number" min={1} max={10} value={newPkg.device_limit} onChange={e => setNewPkg({ ...newPkg, device_limit: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })} className="font-mono bg-muted/50 text-sm" />
                     </div>
                   </div>
                   <Button onClick={addPackage} disabled={savingPkg || !newPkg.name} className="font-mono text-xs">

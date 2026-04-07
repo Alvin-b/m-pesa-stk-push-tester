@@ -90,16 +90,18 @@ const Portal = () => {
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
 
-  /* Init — save params, detect MikroTik, auto-reconnect */
+  /* Init — save params, detect MikroTik, auto-reconnect, cleanup expired */
   useEffect(() => {
     saveParams();
     const mt = getParams();
     if (mt.login) setMikrotikDetected(true);
 
+    // Trigger cleanup of expired sessions (fire-and-forget)
+    supabase.functions.invoke("cleanup-expired", { body: {} }).catch(() => {});
+
     // Auto-reconnect if user has active code stored
     const stored = localStorage.getItem("active_code");
     if (stored && mt.login) {
-      // Verify the code is still valid before auto-reconnecting
       supabase
         .from("vouchers")
         .select("code, status, expires_at")
@@ -301,6 +303,13 @@ const Portal = () => {
 
         if (queryData?.success === true || resultCode === 0 || resultCode === "0") {
           clearInterval(poll);
+
+          // Activate voucher & create RADIUS credentials via confirm-payment
+          const mpesaReceipt = queryData?.data?.MpesaReceiptNumber || null;
+          await supabase.functions.invoke("confirm-payment", {
+            body: { checkoutRequestId, mpesaReceipt },
+          });
+
           const { data: voucher } = await supabase
             .from("vouchers")
             .select("code")

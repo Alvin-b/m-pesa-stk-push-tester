@@ -31,10 +31,18 @@ serve(async (req) => {
     // Deactivate sessions
     await supabase.from("sessions").update({ is_active: false }).eq("voucher_id", voucherId);
 
-    // Remove from radcheck AND radreply
     if (code) {
+      // Remove RADIUS credentials — FreeRADIUS will reject any new auth attempts
       await supabase.from("radcheck").delete().eq("username", code);
       await supabase.from("radreply").delete().eq("username", code);
+
+      // Mark active accounting sessions as terminated so FreeRADIUS knows
+      // the session is done. This sets acctstoptime which causes the NAS
+      // to see the session as closed on next interim update.
+      await supabase.from("radacct").update({
+        acctstoptime: new Date().toISOString(),
+        acctterminatecause: "Admin-Reset",
+      }).eq("username", code).is("acctstoptime", null);
     }
 
     return new Response(JSON.stringify({ success: true }), {
