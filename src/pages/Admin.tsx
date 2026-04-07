@@ -714,9 +714,9 @@ const Admin = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {vouchers.length === 0 ? (
+                        {vouchers.filter(v => v.status !== "revoked").length === 0 ? (
                           <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8 text-xs">No vouchers yet</TableCell></TableRow>
-                        ) : vouchers.map(v => (
+                        ) : vouchers.filter(v => v.status !== "revoked").map(v => (
                           <TableRow key={v.id}>
                             <TableCell className="font-mono font-bold text-primary text-xs">{v.code}</TableCell>
                             <TableCell className="font-mono text-xs">{v.phone_number}</TableCell>
