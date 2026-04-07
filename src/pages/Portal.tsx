@@ -301,6 +301,13 @@ const Portal = () => {
 
         if (queryData?.success === true || resultCode === 0 || resultCode === "0") {
           clearInterval(poll);
+
+          // Activate voucher & create RADIUS credentials via confirm-payment
+          const mpesaReceipt = queryData?.data?.MpesaReceiptNumber || null;
+          await supabase.functions.invoke("confirm-payment", {
+            body: { checkoutRequestId, mpesaReceipt },
+          });
+
           const { data: voucher } = await supabase
             .from("vouchers")
             .select("code")
