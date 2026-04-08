@@ -208,12 +208,12 @@ const Portal = () => {
     setError("");
     const code = accessInput.trim().toUpperCase();
 
-    // Try as access code first
+    // Try as access code first (active or pending)
     let { data: voucher } = await supabase
       .from("vouchers")
       .select("*, packages(*)")
       .eq("code", code)
-      .eq("status", "active")
+      .in("status", ["active", "pending"])
       .maybeSingle();
 
     // Try as M-Pesa receipt
@@ -222,7 +222,7 @@ const Portal = () => {
         .from("vouchers")
         .select("*, packages(*)")
         .eq("mpesa_receipt", code)
-        .eq("status", "active")
+        .in("status", ["active", "pending"])
         .maybeSingle();
       voucher = receipt;
     }
@@ -233,17 +233,16 @@ const Portal = () => {
       return;
     }
 
-    // Verify RADIUS credentials
-    const { data: radcheck } = await supabase
-      .from("radcheck")
-      .select("username")
-      .eq("username", voucher.code)
-      .maybeSingle();
-
-    if (!radcheck) {
-      setError("Your code is valid but RADIUS credentials are missing. Please contact support.");
-      setLoading(false);
-      return;
+    // If voucher is pending, activate it now (payment was confirmed but activation didn't complete)
+    if (voucher.status === "pending") {
+      const { data: confirmData, error: confirmErr } = await supabase.functions.invoke("confirm-payment", {
+        body: { checkoutRequestId: voucher.checkout_request_id || code, mpesaReceipt: voucher.mpesa_receipt },
+      });
+      if (confirmErr || !confirmData?.success) {
+        setError("Failed to activate your voucher. Please try again or contact support.");
+        setLoading(false);
+        return;
+      }
     }
 
     // Check expiry
@@ -305,23 +304,32 @@ const Portal = () => {
           clearInterval(poll);
 
           // Activate voucher & create RADIUS credentials via confirm-payment
-          const mpesaReceipt = queryData?.data?.MpesaReceiptNumber || null;
-          await supabase.functions.invoke("confirm-payment", {
+          const mpesaReceipt = queryData?.data?.CallbackMetadata?.Item?.find(
+            (i: any) => i.Name === "MpesaReceiptNumber"
+          )?.Value || queryData?.data?.MpesaReceiptNumber || null;
+
+          const { data: confirmRes, error: confirmErr } = await supabase.functions.invoke("confirm-payment", {
             body: { checkoutRequestId, mpesaReceipt },
           });
 
-          const { data: voucher } = await supabase
-            .from("vouchers")
-            .select("code")
-            .eq("checkout_request_id", checkoutRequestId)
-            .maybeSingle();
+          console.log("confirm-payment result:", confirmRes, confirmErr);
 
-          const code = voucher?.code || "CHECK ADMIN";
-          if (code !== "CHECK ADMIN") {
+          const code = confirmRes?.code;
+          if (code) {
             await connectUser(code);
           } else {
-            setVoucherCode(code);
-            setStep("success");
+            // Fallback: look up voucher
+            const { data: voucher } = await supabase
+              .from("vouchers")
+              .select("code")
+              .eq("checkout_request_id", checkoutRequestId)
+              .maybeSingle();
+            if (voucher?.code) {
+              await connectUser(voucher.code);
+            } else {
+              setVoucherCode("CHECK ADMIN");
+              setStep("success");
+            }
           }
           return;
         }
