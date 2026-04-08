@@ -169,6 +169,7 @@ const loginMikroTik = (code: string) => {
   }
   loginUrl.searchParams.set("username", code);
   loginUrl.searchParams.set("password", code);
+  loginUrl.searchParams.set("autologin", "1");
   if (mt.orig) loginUrl.searchParams.set("dst", mt.orig);
   if (mt.mac) loginUrl.searchParams.set("mac", mt.mac);
   if (mt.chapId) loginUrl.searchParams.set("chap-id", mt.chapId);
