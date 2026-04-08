@@ -32,6 +32,8 @@ const FAILURE_CODES: Record<string, string> = {
 };
 
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
+const MIKROTIK_STORAGE_KEY = "mt_params";
+const DEFAULT_MIKROTIK_LOGIN_URL = "http://njuwa.wifi/login";
 
 interface RadiusAuthResult {
   status: "accepted" | "rejected" | "unreachable";
@@ -112,38 +114,68 @@ const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
 /* ============================
    MIKROTIK HELPERS — persistent params
 ============================ */
+const hasMikroTikHints = (search: string) => {
+  const params = new URLSearchParams(search);
+  return (
+    params.has("from-mikrotik") ||
+    params.has("link-login-only") ||
+    params.has("link-login") ||
+    params.has("chap-id") ||
+    params.has("chap-challenge") ||
+    params.has("mac") ||
+    params.has("link-orig") ||
+    params.has("link-redirect") ||
+    params.has("dst") ||
+    params.has("popup")
+  );
+};
+
 const saveParams = () => {
-  const params = window.location.search;
-  if (params.includes("link-login")) {
-    sessionStorage.setItem("mt_params", params);
+  const search = window.location.search;
+  if (hasMikroTikHints(search)) {
+    sessionStorage.setItem(MIKROTIK_STORAGE_KEY, search);
   }
 };
 
 const getParams = () => {
   let search = window.location.search;
-  const saved = sessionStorage.getItem("mt_params");
-  if (!search.includes("link-login") && saved) {
+  const saved = sessionStorage.getItem(MIKROTIK_STORAGE_KEY);
+  if (!hasMikroTikHints(search) && saved) {
     search = saved;
   }
   const p = new URLSearchParams(search);
   return {
-    login: p.get("link-login-only") || p.get("link-login"),
-    orig: p.get("link-orig") || p.get("link-redirect") || "",
+    loginOnly: p.get("link-login-only") || "",
+    login: p.get("link-login") || "",
+    orig: p.get("link-orig") || p.get("link-redirect") || p.get("dst") || "",
     mac: p.get("mac") || "",
     ip: p.get("ip") || "",
+    chapId: p.get("chap-id") || "",
+    chapChallenge: p.get("chap-challenge") || "",
+    popup: p.get("popup") || "",
+    fromMikroTik: p.get("from-mikrotik") === "1",
   };
 };
 
 const loginMikroTik = (code: string) => {
   const mt = getParams();
-  const loginUrl = mt.login || "http://wifi.local/login";
-  const url =
-    loginUrl +
-    "?username=" + encodeURIComponent(code) +
-    "&password=" + encodeURIComponent(code) +
-    (mt.orig ? "&dst=" + encodeURIComponent(mt.orig) : "");
+  const loginTarget = mt.loginOnly || mt.login || DEFAULT_MIKROTIK_LOGIN_URL;
+  let loginUrl: URL;
+  try {
+    loginUrl = new URL(loginTarget);
+  } catch (error) {
+    console.warn("Invalid MikroTik login URL, falling back to default:", loginTarget, error);
+    loginUrl = new URL(DEFAULT_MIKROTIK_LOGIN_URL);
+  }
+  loginUrl.searchParams.set("username", code);
+  loginUrl.searchParams.set("password", code);
+  if (mt.orig) loginUrl.searchParams.set("dst", mt.orig);
+  if (mt.mac) loginUrl.searchParams.set("mac", mt.mac);
+  if (mt.chapId) loginUrl.searchParams.set("chap-id", mt.chapId);
+  if (mt.chapChallenge) loginUrl.searchParams.set("chap-challenge", mt.chapChallenge);
+  if (mt.popup) loginUrl.searchParams.set("popup", mt.popup);
   setTimeout(() => {
-    window.location.href = url;
+    window.location.href = loginUrl.toString();
   }, 1000);
 };
 
@@ -170,14 +202,14 @@ const Portal = () => {
   useEffect(() => {
     saveParams();
     const mt = getParams();
-    if (mt.login) setMikrotikDetected(true);
+    if (mt.loginOnly || mt.login || mt.fromMikroTik) setMikrotikDetected(true);
 
     // Trigger cleanup of expired sessions (fire-and-forget)
     supabase.functions.invoke("cleanup-expired", { body: {} }).catch(() => {});
 
     // Auto-reconnect if user has active code stored
     const stored = localStorage.getItem("active_code");
-    if (stored && mt.login) {
+    if (stored && (mt.loginOnly || mt.login || mt.fromMikroTik)) {
       void (async () => {
         const radiusCheck = await validateRadiusCode(stored);
         const { data } = await supabase

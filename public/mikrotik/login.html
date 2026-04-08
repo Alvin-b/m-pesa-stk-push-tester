@@ -13,7 +13,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: #fff;
       padding: 24px;
     }
@@ -83,26 +83,43 @@
   <p class="brand">Powered by M-Pesa · Daraja API</p>
 
   <script>
-    // ──────────────────────────────────────────
-    // Capture ALL MikroTik hotspot variables and
-    // forward them to the hosted captive portal.
-    // ──────────────────────────────────────────
     (function () {
-      // ── CONFIGURATION ──
-      // Change this to your Lovable app URL
       var PORTAL = "https://stk-pay-magic.lovable.app/portal";
+      var incoming = new URLSearchParams(window.location.search);
+      var params = new URLSearchParams();
 
-      // Grab every query-string parameter the router sends
-      var raw = window.location.search;          // ?link-login=…&mac=…&ip=…
-      var params = new URLSearchParams(raw);
-
-      // Build the portal URL preserving all MikroTik params
-      var portalUrl = PORTAL;
-      if (raw && raw.length > 1) {
-        portalUrl = PORTAL + raw;                // append ?link-login=…&…
+      function addParam(key, value) {
+        if (!value || value === "null" || value.indexOf("$(") === 0) return;
+        params.set(key, value);
       }
 
-      // Redirect after a short delay so the animation plays
+      function resolveRouterUrl(value) {
+        if (!value || value === "null" || value.indexOf("$(") === 0) return "";
+        try {
+          return new URL(value, window.location.origin).toString();
+        } catch (error) {
+          return value;
+        }
+      }
+
+      addParam("from-mikrotik", "1");
+      addParam("link-login-only", resolveRouterUrl("$(link-login-only)"));
+      addParam("link-login", resolveRouterUrl("$(link-login)"));
+      addParam("link-orig", "$(link-orig-esc)");
+      addParam("chap-id", "$(chap-id)");
+      addParam("chap-challenge", "$(chap-challenge)");
+      addParam("mac", "$(mac-esc)");
+      addParam("ip", "$(ip)");
+      addParam("popup", incoming.get("popup") || "$(popup)");
+      addParam("dst", incoming.get("dst") || "$(link-orig-esc)");
+
+      incoming.forEach(function (value, key) {
+        if (!params.has(key)) addParam(key, value);
+      });
+
+      var query = params.toString();
+      var portalUrl = query ? PORTAL + "?" + query : PORTAL;
+
       setTimeout(function () {
         window.location.href = portalUrl;
       }, 2500);
