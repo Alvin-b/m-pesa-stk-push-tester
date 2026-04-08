@@ -34,7 +34,7 @@ const FAILURE_CODES: Record<string, string> = {
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 
 interface RadiusAuthResult {
-  valid: boolean;
+  status: "accepted" | "rejected" | "unreachable";
   message: string;
   shouldForgetCode: boolean;
 }
@@ -60,27 +60,27 @@ const mapRadiusReplyMessage = (replyMessage: string): RadiusAuthResult => {
   const normalized = replyMessage.toLowerCase();
   if (!normalized) {
     return {
-      valid: false,
+      status: "unreachable",
       message: DEFAULT_RADIUS_ERROR,
       shouldForgetCode: false,
     };
   }
   if (normalized.includes("invalid credentials")) {
     return {
-      valid: false,
+      status: "rejected",
       message: INVALID_CODE_ERROR,
       shouldForgetCode: true,
     };
   }
   if (normalized.includes("expired") || normalized.includes("revoked")) {
     return {
-      valid: false,
+      status: "rejected",
       message: "This voucher has expired or was revoked. Please buy a new package or contact support.",
       shouldForgetCode: true,
     };
   }
   return {
-    valid: false,
+    status: "rejected",
     message: replyMessage,
     shouldForgetCode: false,
   };
@@ -93,15 +93,20 @@ const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
 
   if (error) {
     console.error("radius-auth failed:", error);
-    return { valid: false, message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
+    return { status: "unreachable", message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
   }
 
   const payload = data && typeof data === "object" ? data as Record<string, unknown> : null;
   if (payload?.["control:Auth-Type"] === "Accept") {
-    return { valid: true, message: "", shouldForgetCode: false };
+    return { status: "accepted", message: "", shouldForgetCode: false };
   }
 
-  return mapRadiusReplyMessage(getRadiusReplyMessage(payload));
+  const replyMessage = getRadiusReplyMessage(payload);
+  if (!replyMessage) {
+    return { status: "unreachable", message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
+  }
+
+  return mapRadiusReplyMessage(replyMessage);
 };
 
 /* ============================
@@ -175,18 +180,21 @@ const Portal = () => {
     if (stored && mt.login) {
       void (async () => {
         const radiusCheck = await validateRadiusCode(stored);
-        if (!radiusCheck.valid) {
-          if (radiusCheck.shouldForgetCode) {
+        const { data } = await supabase
+          .from("vouchers")
+          .select("expires_at, status")
+          .eq("code", stored)
+          .maybeSingle();
+
+        const expired = data?.expires_at ? new Date(data.expires_at) < new Date() : false;
+        const canFallbackReconnect = data?.status === "active" && !expired;
+
+        if (radiusCheck.status !== "accepted" && !canFallbackReconnect) {
+          if (radiusCheck.shouldForgetCode || !data || expired) {
             localStorage.removeItem("active_code");
           }
           return;
         }
-
-        const { data } = await supabase
-          .from("vouchers")
-          .select("expires_at")
-          .eq("code", stored)
-          .maybeSingle();
 
         if (data?.expires_at) {
           setExpiresAt(new Date(data.expires_at));
@@ -283,7 +291,7 @@ const Portal = () => {
     const code = accessInput.trim().toUpperCase();
     const initialRadiusCheck = await validateRadiusCode(code);
 
-    if (initialRadiusCheck.valid) {
+    if (initialRadiusCheck.status === "accepted") {
       setLoading(false);
       await connectUser(code);
       return;
@@ -309,7 +317,7 @@ const Portal = () => {
     }
 
     if (!voucher) {
-      setError(initialRadiusCheck.message || INVALID_CODE_ERROR);
+      setError(initialRadiusCheck.status === "rejected" ? initialRadiusCheck.message : INVALID_CODE_ERROR);
       setLoading(false);
       return;
     }
@@ -332,11 +340,17 @@ const Portal = () => {
       }
     }
 
+    if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
+      setError("This code has expired. Please purchase a new package.");
+      setLoading(false);
+      return;
+    }
+
     const radiusCheck = resolvedCode === code && voucher.status !== "pending"
       ? initialRadiusCheck
       : await validateRadiusCode(resolvedCode);
 
-    if (!radiusCheck.valid) {
+    if (radiusCheck.status === "rejected") {
       setError(radiusCheck.message || DEFAULT_RADIUS_ERROR);
       setLoading(false);
       return;
