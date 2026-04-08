@@ -33,6 +33,77 @@ const FAILURE_CODES: Record<string, string> = {
 
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 
+interface RadiusAuthResult {
+  valid: boolean;
+  message: string;
+  shouldForgetCode: boolean;
+}
+
+const DEFAULT_RADIUS_ERROR = "We couldn't verify your access code right now. Please try again.";
+const INVALID_CODE_ERROR = "Invalid code. Please check your access code or M-Pesa transaction code and try again.";
+
+const getRadiusReplyMessage = (payload: Record<string, unknown> | null): string => {
+  const directMessage = payload?.["Reply-Message"];
+  if (typeof directMessage === "string" && directMessage.trim()) {
+    return directMessage;
+  }
+
+  const replyMessage = payload?.["reply:Reply-Message"];
+  if (typeof replyMessage === "string" && replyMessage.trim()) {
+    return replyMessage;
+  }
+
+  return "";
+};
+
+const mapRadiusReplyMessage = (replyMessage: string): RadiusAuthResult => {
+  const normalized = replyMessage.toLowerCase();
+  if (!normalized) {
+    return {
+      valid: false,
+      message: DEFAULT_RADIUS_ERROR,
+      shouldForgetCode: false,
+    };
+  }
+  if (normalized.includes("invalid credentials")) {
+    return {
+      valid: false,
+      message: INVALID_CODE_ERROR,
+      shouldForgetCode: true,
+    };
+  }
+  if (normalized.includes("expired") || normalized.includes("revoked")) {
+    return {
+      valid: false,
+      message: "This voucher has expired or was revoked. Please buy a new package or contact support.",
+      shouldForgetCode: true,
+    };
+  }
+  return {
+    valid: false,
+    message: replyMessage,
+    shouldForgetCode: false,
+  };
+};
+
+const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
+  const { data, error } = await supabase.functions.invoke("radius-auth", {
+    body: { username: code, password: code },
+  });
+
+  if (error) {
+    console.error("radius-auth failed:", error);
+    return { valid: false, message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
+  }
+
+  const payload = data && typeof data === "object" ? data as Record<string, unknown> : null;
+  if (payload?.["control:Auth-Type"] === "Accept") {
+    return { valid: true, message: "", shouldForgetCode: false };
+  }
+
+  return mapRadiusReplyMessage(getRadiusReplyMessage(payload));
+};
+
 /* ============================
    MIKROTIK HELPERS — persistent params
 ============================ */
@@ -102,24 +173,27 @@ const Portal = () => {
     // Auto-reconnect if user has active code stored
     const stored = localStorage.getItem("active_code");
     if (stored && mt.login) {
-      supabase
-        .from("vouchers")
-        .select("code, status, expires_at")
-        .eq("code", stored)
-        .eq("status", "active")
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data) {
-            const expired = data.expires_at && new Date(data.expires_at) < new Date();
-            if (!expired) {
-              loginMikroTik(data.code);
-            } else {
-              localStorage.removeItem("active_code");
-            }
-          } else {
+      void (async () => {
+        const radiusCheck = await validateRadiusCode(stored);
+        if (!radiusCheck.valid) {
+          if (radiusCheck.shouldForgetCode) {
             localStorage.removeItem("active_code");
           }
-        });
+          return;
+        }
+
+        const { data } = await supabase
+          .from("vouchers")
+          .select("expires_at")
+          .eq("code", stored)
+          .maybeSingle();
+
+        if (data?.expires_at) {
+          setExpiresAt(new Date(data.expires_at));
+        }
+
+        loginMikroTik(stored);
+      })();
     }
 
     // Fetch packages
@@ -207,6 +281,13 @@ const Portal = () => {
     setLoading(true);
     setError("");
     const code = accessInput.trim().toUpperCase();
+    const initialRadiusCheck = await validateRadiusCode(code);
+
+    if (initialRadiusCheck.valid) {
+      setLoading(false);
+      await connectUser(code);
+      return;
+    }
 
     // Try as access code first (active or pending)
     let { data: voucher } = await supabase
@@ -228,10 +309,12 @@ const Portal = () => {
     }
 
     if (!voucher) {
-      setError("Invalid code. Please check your access code or M-Pesa transaction code and try again.");
+      setError(initialRadiusCheck.message || INVALID_CODE_ERROR);
       setLoading(false);
       return;
     }
+
+    let resolvedCode = voucher.code;
 
     // If voucher is pending, activate it now (payment was confirmed but activation didn't complete)
     if (voucher.status === "pending") {
@@ -243,17 +326,24 @@ const Portal = () => {
         setLoading(false);
         return;
       }
+
+      if (typeof confirmData?.code === "string" && confirmData.code.trim()) {
+        resolvedCode = confirmData.code.trim().toUpperCase();
+      }
     }
 
-    // Check expiry
-    if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
-      setError("This code has expired. Please purchase a new package.");
+    const radiusCheck = resolvedCode === code && voucher.status !== "pending"
+      ? initialRadiusCheck
+      : await validateRadiusCode(resolvedCode);
+
+    if (!radiusCheck.valid) {
+      setError(radiusCheck.message || DEFAULT_RADIUS_ERROR);
       setLoading(false);
       return;
     }
 
     setLoading(false);
-    await connectUser(voucher.code);
+    await connectUser(resolvedCode);
   };
 
   /* ============================
