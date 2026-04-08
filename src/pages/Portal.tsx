@@ -34,6 +34,8 @@ const FAILURE_CODES: Record<string, string> = {
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 const MIKROTIK_STORAGE_KEY = "mt_params";
 const DEFAULT_MIKROTIK_LOGIN_URL = "http://wifi.local/login";
+const RADIUS_AUTH_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/radius-auth`;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 interface RadiusAuthResult {
   status: "accepted" | "rejected" | "unreachable";
@@ -89,26 +91,49 @@ const mapRadiusReplyMessage = (replyMessage: string): RadiusAuthResult => {
 };
 
 const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
-  const { data, error } = await supabase.functions.invoke("radius-auth", {
-    body: { username: code, password: code },
-  });
+  try {
+    const response = await fetch(RADIUS_AUTH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: JSON.stringify({ username: code, password: code }),
+    });
 
-  if (error) {
+    let payload: Record<string, unknown> | null = null;
+    try {
+      const json = await response.json();
+      if (json && typeof json === "object") {
+        payload = json as Record<string, unknown>;
+      }
+    } catch {
+      payload = null;
+    }
+
+    if (response.ok && payload?.["control:Auth-Type"] === "Accept") {
+      return { status: "accepted", message: "", shouldForgetCode: false };
+    }
+
+    const replyMessage = getRadiusReplyMessage(payload);
+    if (replyMessage) {
+      return mapRadiusReplyMessage(replyMessage);
+    }
+
+    if (!response.ok) {
+      return {
+        status: "rejected",
+        message: INVALID_CODE_ERROR,
+        shouldForgetCode: true,
+      };
+    }
+
+    return { status: "unreachable", message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
+  } catch (error) {
     console.error("radius-auth failed:", error);
     return { status: "unreachable", message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
   }
-
-  const payload = data && typeof data === "object" ? data as Record<string, unknown> : null;
-  if (payload?.["control:Auth-Type"] === "Accept") {
-    return { status: "accepted", message: "", shouldForgetCode: false };
-  }
-
-  const replyMessage = getRadiusReplyMessage(payload);
-  if (!replyMessage) {
-    return { status: "unreachable", message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
-  }
-
-  return mapRadiusReplyMessage(replyMessage);
 };
 
 /* ============================
