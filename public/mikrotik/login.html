@@ -143,7 +143,7 @@
         form.action = mt.linkLoginOnly || mt.linkLogin || window.location.origin + "/login";
         form.querySelector('input[name=\"username\"]').value = username;
         form.querySelector('input[name=\"dst\"]').value = incoming.get("dst") || mt.linkOrig || "";
-        form.querySelector('input[name=\"popup\"]').value = incoming.get("popup") || mt.popup || "true";
+        form.querySelector('input[name=\"popup\"]').value = "false";
 
         if (mt.chapId && mt.chapChallenge && typeof hexMD5 === "function") {
           form.querySelector('input[name=\"password\"]').value = hexMD5(mt.chapId + password + mt.chapChallenge);
