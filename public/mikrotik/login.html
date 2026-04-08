@@ -52,6 +52,7 @@
     @keyframes progress { 0% { width: 0; } 100% { width: 100%; } }
     .status-text { font-size: 14px; color: rgba(255,255,255,0.6); letter-spacing: 0.02em; }
     .brand { position: relative; z-index: 1; margin-top: 24px; font-size: 12px; color: rgba(255,255,255,0.3); }
+    form { display: none; }
   </style>
 </head>
 <body>
@@ -80,21 +81,38 @@
     </div>
   </div>
 
+  <form id="autologin-form" action="$(link-login-only)" method="post">
+    <input type="hidden" name="username">
+    <input type="hidden" name="password">
+    <input type="hidden" name="dst">
+    <input type="hidden" name="popup">
+  </form>
+
   <p class="brand">Powered by M-Pesa · Daraja API</p>
 
+  <script src="md5.js"></script>
   <script>
     (function () {
       var PORTAL = "https://stk-pay-magic.lovable.app/portal";
       var incoming = new URLSearchParams(window.location.search);
       var params = new URLSearchParams();
+      var subtitle = document.querySelector(".subtitle");
+      var statusText = document.querySelector(".status-text");
+
+      function clean(value) {
+        if (!value || value === "null" || value.indexOf("$(") === 0) return "";
+        return value;
+      }
 
       function addParam(key, value) {
-        if (!value || value === "null" || value.indexOf("$(") === 0) return;
+        value = clean(value);
+        if (!value) return;
         params.set(key, value);
       }
 
       function resolveRouterUrl(value) {
-        if (!value || value === "null" || value.indexOf("$(") === 0) return "";
+        value = clean(value);
+        if (!value) return "";
         try {
           return new URL(value, window.location.origin).toString();
         } catch (error) {
@@ -102,16 +120,53 @@
         }
       }
 
+      var mt = {
+        linkLoginOnly: resolveRouterUrl("$(link-login-only)"),
+        linkLogin: resolveRouterUrl("$(link-login)"),
+        linkOrig: clean("$(link-orig-esc)"),
+        chapId: clean("$(chap-id)"),
+        chapChallenge: clean("$(chap-challenge)"),
+        mac: clean("$(mac-esc)"),
+        ip: clean("$(ip)"),
+        popup: clean("$(popup)")
+      };
+
+      var username = incoming.get("username") || "";
+      var password = incoming.get("password") || "";
+      var isAutoLogin = !!username && !!password;
+
+      if (isAutoLogin) {
+        subtitle.innerHTML = "Authenticating your voucher.<br>Please wait a moment…";
+        statusText.textContent = "Signing you in to WiFi…";
+
+        var form = document.getElementById("autologin-form");
+        form.action = mt.linkLoginOnly || mt.linkLogin || window.location.origin + "/login";
+        form.querySelector('input[name=\"username\"]').value = username;
+        form.querySelector('input[name=\"dst\"]').value = incoming.get("dst") || mt.linkOrig || "";
+        form.querySelector('input[name=\"popup\"]').value = incoming.get("popup") || mt.popup || "true";
+
+        if (mt.chapId && mt.chapChallenge && typeof hexMD5 === "function") {
+          form.querySelector('input[name=\"password\"]').value = hexMD5(mt.chapId + password + mt.chapChallenge);
+        } else {
+          form.querySelector('input[name=\"password\"]').value = password;
+        }
+
+        setTimeout(function () {
+          form.submit();
+        }, 700);
+        return;
+      }
+
       addParam("from-mikrotik", "1");
-      addParam("link-login-only", resolveRouterUrl("$(link-login-only)"));
-      addParam("link-login", resolveRouterUrl("$(link-login)"));
-      addParam("link-orig", "$(link-orig-esc)");
-      addParam("chap-id", "$(chap-id)");
-      addParam("chap-challenge", "$(chap-challenge)");
-      addParam("mac", "$(mac-esc)");
-      addParam("ip", "$(ip)");
-      addParam("popup", incoming.get("popup") || "$(popup)");
-      addParam("dst", incoming.get("dst") || "$(link-orig-esc)");
+      addParam("link-login-only", mt.linkLoginOnly);
+      addParam("link-login", mt.linkLogin);
+      addParam("link-orig", mt.linkOrig);
+      addParam("chap-id", mt.chapId);
+      addParam("chap-challenge", mt.chapChallenge);
+      addParam("mac", mt.mac);
+      addParam("ip", mt.ip);
+      addParam("popup", incoming.get("popup") || mt.popup);
+      addParam("dst", incoming.get("dst") || mt.linkOrig);
 
       incoming.forEach(function (value, key) {
         if (!params.has(key)) addParam(key, value);
