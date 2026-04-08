@@ -174,7 +174,7 @@ const loginMikroTik = (code: string) => {
   if (mt.mac) loginUrl.searchParams.set("mac", mt.mac);
   if (mt.chapId) loginUrl.searchParams.set("chap-id", mt.chapId);
   if (mt.chapChallenge) loginUrl.searchParams.set("chap-challenge", mt.chapChallenge);
-  if (mt.popup) loginUrl.searchParams.set("popup", mt.popup);
+  loginUrl.searchParams.set("popup", "false");
   setTimeout(() => {
     window.location.href = loginUrl.toString();
   }, 1000);
