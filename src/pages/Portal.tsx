@@ -33,7 +33,7 @@ const FAILURE_CODES: Record<string, string> = {
 
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
 const MIKROTIK_STORAGE_KEY = "mt_params";
-const DEFAULT_MIKROTIK_LOGIN_URL = "http://njuwa.wifi/login";
+const DEFAULT_MIKROTIK_LOGIN_URL = "http://wifi.local/login";
 
 interface RadiusAuthResult {
   status: "accepted" | "rejected" | "unreachable";
