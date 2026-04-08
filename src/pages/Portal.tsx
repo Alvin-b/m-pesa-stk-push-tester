@@ -304,23 +304,32 @@ const Portal = () => {
           clearInterval(poll);
 
           // Activate voucher & create RADIUS credentials via confirm-payment
-          const mpesaReceipt = queryData?.data?.MpesaReceiptNumber || null;
-          await supabase.functions.invoke("confirm-payment", {
+          const mpesaReceipt = queryData?.data?.CallbackMetadata?.Item?.find(
+            (i: any) => i.Name === "MpesaReceiptNumber"
+          )?.Value || queryData?.data?.MpesaReceiptNumber || null;
+
+          const { data: confirmRes, error: confirmErr } = await supabase.functions.invoke("confirm-payment", {
             body: { checkoutRequestId, mpesaReceipt },
           });
 
-          const { data: voucher } = await supabase
-            .from("vouchers")
-            .select("code")
-            .eq("checkout_request_id", checkoutRequestId)
-            .maybeSingle();
+          console.log("confirm-payment result:", confirmRes, confirmErr);
 
-          const code = voucher?.code || "CHECK ADMIN";
-          if (code !== "CHECK ADMIN") {
+          const code = confirmRes?.code;
+          if (code) {
             await connectUser(code);
           } else {
-            setVoucherCode(code);
-            setStep("success");
+            // Fallback: look up voucher
+            const { data: voucher } = await supabase
+              .from("vouchers")
+              .select("code")
+              .eq("checkout_request_id", checkoutRequestId)
+              .maybeSingle();
+            if (voucher?.code) {
+              await connectUser(voucher.code);
+            } else {
+              setVoucherCode("CHECK ADMIN");
+              setStep("success");
+            }
           }
           return;
         }
