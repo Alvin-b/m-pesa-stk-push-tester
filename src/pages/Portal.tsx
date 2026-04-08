@@ -50,6 +50,9 @@ interface RadiusSyncResult {
 
 const DEFAULT_RADIUS_ERROR = "We couldn't verify your access code right now. Please try again.";
 const INVALID_CODE_ERROR = "Invalid code. Please check your access code or M-Pesa transaction code and try again.";
+const EXPIRED_CODE_ERROR = "This voucher has expired. Please buy a new package.";
+const REVOKED_CODE_ERROR = "This voucher was revoked by the administrator. Please buy a new package or contact support.";
+const INACTIVE_CODE_ERROR = "This saved voucher is no longer valid. Please enter a new code or buy a package.";
 
 const getRadiusReplyMessage = (payload: Record<string, unknown> | null): string => {
   const directMessage = payload?.["Reply-Message"];
@@ -93,6 +96,12 @@ const mapRadiusReplyMessage = (replyMessage: string): RadiusAuthResult => {
     message: replyMessage,
     shouldForgetCode: false,
   };
+};
+
+const getVoucherLifecycleMessage = (status?: string | null, expired = false): string => {
+  if (status === "revoked") return REVOKED_CODE_ERROR;
+  if (status === "expired" || expired) return EXPIRED_CODE_ERROR;
+  return "";
 };
 
 const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
@@ -161,6 +170,35 @@ const syncVoucherRadius = async (code: string): Promise<RadiusSyncResult> => {
       ? data.error
       : "We found your voucher, but couldn't sync it with the network right now.",
   };
+};
+
+const findVoucherByCodeOrReceipt = async (value: string, statuses?: string[]) => {
+  let query = supabase
+    .from("vouchers")
+    .select("*, packages(*)")
+    .eq("code", value);
+
+  if (statuses?.length) {
+    query = query.in("status", statuses);
+  }
+
+  let { data: voucher } = await query.maybeSingle();
+
+  if (!voucher) {
+    let receiptQuery = supabase
+      .from("vouchers")
+      .select("*, packages(*)")
+      .eq("mpesa_receipt", value);
+
+    if (statuses?.length) {
+      receiptQuery = receiptQuery.in("status", statuses);
+    }
+
+    const { data: receiptVoucher } = await receiptQuery.maybeSingle();
+    voucher = receiptVoucher;
+  }
+
+  return voucher;
 };
 
 /* ============================
@@ -264,32 +302,31 @@ const Portal = () => {
     const stored = localStorage.getItem("active_code");
     if (stored && (mt.loginOnly || mt.login || mt.fromMikroTik)) {
       void (async () => {
-        let radiusCheck = await validateRadiusCode(stored);
-        const { data } = await supabase
-          .from("vouchers")
-          .select("expires_at, status")
-          .eq("code", stored)
-          .maybeSingle();
+        const voucher = await findVoucherByCodeOrReceipt(stored);
+        const status = voucher?.status as string | undefined;
+        const expiresAtValue = typeof voucher?.expires_at === "string" ? voucher.expires_at : null;
+        const expired = expiresAtValue ? new Date(expiresAtValue) < new Date() : false;
+        const lifecycleMessage = getVoucherLifecycleMessage(status, expired);
 
-        const expired = data?.expires_at ? new Date(data.expires_at) < new Date() : false;
-        const canFallbackReconnect = data?.status === "active" && !expired;
-
-        if (radiusCheck.status === "rejected" && canFallbackReconnect) {
-          const syncResult = await syncVoucherRadius(stored);
-          if (syncResult.success) {
-            radiusCheck = await validateRadiusCode(stored);
-          }
-        }
-
-        if (radiusCheck.status !== "accepted" && !canFallbackReconnect) {
-          if (radiusCheck.shouldForgetCode || !data || expired) {
-            localStorage.removeItem("active_code");
-          }
+        if (!voucher || status === "revoked" || status === "expired" || expired) {
+          localStorage.removeItem("active_code");
+          setError(lifecycleMessage || INACTIVE_CODE_ERROR);
+          setStep("packages");
           return;
         }
 
-        if (data?.expires_at) {
-          setExpiresAt(new Date(data.expires_at));
+        const radiusCheck = await validateRadiusCode(stored);
+        if (radiusCheck.status !== "accepted") {
+          if (radiusCheck.shouldForgetCode || radiusCheck.status === "rejected") {
+            localStorage.removeItem("active_code");
+          }
+          setError(lifecycleMessage || radiusCheck.message || DEFAULT_RADIUS_ERROR);
+          setStep("packages");
+          return;
+        }
+
+        if (expiresAtValue) {
+          setExpiresAt(new Date(expiresAtValue));
         }
 
         loginMikroTik(stored);
@@ -390,25 +427,22 @@ const Portal = () => {
     }
 
     // Try as access code first (active or pending)
-    let { data: voucher } = await supabase
-      .from("vouchers")
-      .select("*, packages(*)")
-      .eq("code", code)
-      .in("status", ["active", "pending"])
-      .maybeSingle();
-
-    // Try as M-Pesa receipt
-    if (!voucher) {
-      const { data: receipt } = await supabase
-        .from("vouchers")
-        .select("*, packages(*)")
-        .eq("mpesa_receipt", code)
-        .in("status", ["active", "pending"])
-        .maybeSingle();
-      voucher = receipt;
-    }
+    let voucher = await findVoucherByCodeOrReceipt(code, ["active", "pending"]);
 
     if (!voucher) {
+      const inactiveVoucher = await findVoucherByCodeOrReceipt(code);
+      const inactiveStatus = inactiveVoucher?.status as string | undefined;
+      const inactiveExpired = inactiveVoucher?.expires_at
+        ? new Date(inactiveVoucher.expires_at) < new Date()
+        : false;
+      const lifecycleMessage = getVoucherLifecycleMessage(inactiveStatus, inactiveExpired);
+
+      if (inactiveVoucher && lifecycleMessage) {
+        setError(lifecycleMessage);
+        setLoading(false);
+        return;
+      }
+
       setError(initialRadiusCheck.status === "rejected" ? initialRadiusCheck.message : INVALID_CODE_ERROR);
       setLoading(false);
       return;
