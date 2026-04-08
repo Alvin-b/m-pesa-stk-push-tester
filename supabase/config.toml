@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.cleanup-expired]
 verify_jwt = false
+
+[functions.sync-voucher-radius]
+verify_jwt = false

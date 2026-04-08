@@ -43,6 +43,11 @@ interface RadiusAuthResult {
   shouldForgetCode: boolean;
 }
 
+interface RadiusSyncResult {
+  success: boolean;
+  message?: string;
+}
+
 const DEFAULT_RADIUS_ERROR = "We couldn't verify your access code right now. Please try again.";
 const INVALID_CODE_ERROR = "Invalid code. Please check your access code or M-Pesa transaction code and try again.";
 
@@ -134,6 +139,28 @@ const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
     console.error("radius-auth failed:", error);
     return { status: "unreachable", message: DEFAULT_RADIUS_ERROR, shouldForgetCode: false };
   }
+};
+
+const syncVoucherRadius = async (code: string): Promise<RadiusSyncResult> => {
+  const { data, error } = await supabase.functions.invoke("sync-voucher-radius", {
+    body: { code },
+  });
+
+  if (error) {
+    console.error("sync-voucher-radius failed:", error);
+    return { success: false, message: "We found your voucher, but couldn't sync it with the network right now." };
+  }
+
+  if (data?.success) {
+    return { success: true };
+  }
+
+  return {
+    success: false,
+    message: typeof data?.error === "string" && data.error.trim()
+      ? data.error
+      : "We found your voucher, but couldn't sync it with the network right now.",
+  };
 };
 
 /* ============================
@@ -237,7 +264,7 @@ const Portal = () => {
     const stored = localStorage.getItem("active_code");
     if (stored && (mt.loginOnly || mt.login || mt.fromMikroTik)) {
       void (async () => {
-        const radiusCheck = await validateRadiusCode(stored);
+        let radiusCheck = await validateRadiusCode(stored);
         const { data } = await supabase
           .from("vouchers")
           .select("expires_at, status")
@@ -246,6 +273,13 @@ const Portal = () => {
 
         const expired = data?.expires_at ? new Date(data.expires_at) < new Date() : false;
         const canFallbackReconnect = data?.status === "active" && !expired;
+
+        if (radiusCheck.status === "rejected" && canFallbackReconnect) {
+          const syncResult = await syncVoucherRadius(stored);
+          if (syncResult.success) {
+            radiusCheck = await validateRadiusCode(stored);
+          }
+        }
 
         if (radiusCheck.status !== "accepted" && !canFallbackReconnect) {
           if (radiusCheck.shouldForgetCode || !data || expired) {
@@ -408,8 +442,20 @@ const Portal = () => {
       ? initialRadiusCheck
       : await validateRadiusCode(resolvedCode);
 
-    if (radiusCheck.status === "rejected") {
-      setError(radiusCheck.message || DEFAULT_RADIUS_ERROR);
+    let finalRadiusCheck = radiusCheck;
+    if (finalRadiusCheck.status === "rejected") {
+      const syncResult = await syncVoucherRadius(resolvedCode);
+      if (syncResult.success) {
+        finalRadiusCheck = await validateRadiusCode(resolvedCode);
+      } else if (voucher.status === "active") {
+        setError(syncResult.message || "We found your voucher, but couldn't sync it with the network right now.");
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (finalRadiusCheck.status === "rejected") {
+      setError(finalRadiusCheck.message || DEFAULT_RADIUS_ERROR);
       setLoading(false);
       return;
     }
