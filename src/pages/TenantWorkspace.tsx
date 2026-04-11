@@ -1,0 +1,288 @@
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { invoices, routerNodes, tenantSummary, workspaceMetrics } from "@/data/platform-demo";
+import {
+  ArrowUpRight,
+  BellRing,
+  CreditCard,
+  FileSpreadsheet,
+  Globe,
+  Network,
+  ReceiptText,
+  Router,
+  ShieldAlert,
+  Sparkles,
+  Users,
+  Wifi,
+  Zap,
+} from "lucide-react";
+
+const toneClasses = {
+  positive: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10",
+  neutral: "text-sky-200 border-sky-300/30 bg-sky-400/10",
+  warning: "text-amber-200 border-amber-300/30 bg-amber-300/10",
+};
+
+const routerTone = {
+  healthy: "bg-emerald-400",
+  warning: "bg-amber-300",
+  offline: "bg-rose-400",
+};
+
+const invoiceTone = {
+  paid: "bg-emerald-400/15 text-emerald-200 border-emerald-400/30",
+  due: "bg-sky-400/15 text-sky-100 border-sky-400/30",
+  overdue: "bg-rose-400/15 text-rose-100 border-rose-400/30",
+};
+
+const TenantWorkspace = () => {
+  return (
+    <div className="min-h-screen bg-[#08111f] text-white">
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(24,119,242,0.28),_transparent_34%),radial-gradient(circle_at_85%_15%,_rgba(10,196,164,0.18),_transparent_30%),linear-gradient(180deg,_#09111f_0%,_#0b1629_48%,_#08111f_100%)]" />
+        <div className="absolute inset-x-0 top-0 h-72 bg-[linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(180deg,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[size:90px_90px] opacity-10" />
+
+        <div className="relative mx-auto max-w-7xl px-4 py-8 md:px-8">
+          <div className="flex flex-col gap-5 rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl shadow-[0_30px_80px_rgba(0,0,0,0.35)] md:p-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-4">
+                <Badge className="border-cyan-300/30 bg-cyan-400/10 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.25em] text-cyan-100">
+                  Tenant Command Center
+                </Badge>
+                <div>
+                  <h1 className="max-w-3xl font-mono text-3xl font-semibold tracking-tight text-white md:text-5xl">
+                    {tenantSummary.name} now has a SaaS-ready operations layer.
+                  </h1>
+                  <p className="mt-3 max-w-2xl text-sm text-slate-300 md:text-base">
+                    We are keeping the current portal alive while opening the next surface for billing controls,
+                    router orchestration, invoice visibility, and tenant-scale management.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button className="h-11 rounded-full bg-white text-slate-950 hover:bg-slate-100">
+                    <Router className="mr-2 h-4 w-4" />
+                    Provision Router
+                  </Button>
+                  <Button variant="outline" className="h-11 rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10">
+                    <ReceiptText className="mr-2 h-4 w-4" />
+                    View Billing
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid min-w-[280px] gap-3 md:grid-cols-2 lg:w-[420px]">
+                <Card className="border-white/10 bg-[#0d1a30]/80 text-white">
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Current Plan</p>
+                        <p className="mt-2 text-lg font-semibold">{tenantSummary.plan}</p>
+                      </div>
+                      <Sparkles className="h-5 w-5 text-cyan-200" />
+                    </div>
+                    <p className="mt-3 text-sm text-slate-300">{tenantSummary.monthlyVolume}</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-white/10 bg-[#0d1a30]/80 text-white">
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Network Reach</p>
+                        <p className="mt-2 text-lg font-semibold">{tenantSummary.routersOnline}</p>
+                      </div>
+                      <Globe className="h-5 w-5 text-emerald-200" />
+                    </div>
+                    <p className="mt-3 text-sm text-slate-300">{tenantSummary.mrr} billed this cycle</p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {workspaceMetrics.map((metric) => (
+                <Card key={metric.label} className="border-white/10 bg-white/5 text-white">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{metric.label}</p>
+                        <p className="mt-3 text-3xl font-semibold text-white">{metric.value}</p>
+                      </div>
+                      <Badge className={`border ${toneClasses[metric.tone]} rounded-full px-2.5 py-1 text-[10px] font-medium`}>
+                        Live
+                      </Badge>
+                    </div>
+                    <p className="mt-4 text-sm text-slate-300">{metric.change}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
+            <Card className="border-white/10 bg-white/[0.04] text-white">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="font-mono text-xl">Router Fleet</CardTitle>
+                  <p className="mt-1 text-sm text-slate-400">Remote-ready devices, live health, and revenue snapshots.</p>
+                </div>
+                <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10">
+                  <Network className="mr-2 h-4 w-4" />
+                  Open Fleet
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {routerNodes.map((router) => (
+                  <div
+                    key={router.id}
+                    className="rounded-2xl border border-white/10 bg-[#0d1729] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${routerTone[router.status]}`} />
+                          <p className="font-mono text-base text-white">{router.name}</p>
+                          <Badge className="border-white/10 bg-white/5 text-[10px] uppercase tracking-[0.2em] text-slate-300">
+                            {router.id}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-400">{router.site}</p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 text-sm md:min-w-[320px]">
+                        <div className="rounded-xl bg-white/5 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Clients</p>
+                          <p className="mt-2 font-semibold text-white">{router.clients}</p>
+                        </div>
+                        <div className="rounded-xl bg-white/5 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Today</p>
+                          <p className="mt-2 font-semibold text-white">{router.revenueToday}</p>
+                        </div>
+                        <div className="rounded-xl bg-white/5 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Last Sync</p>
+                          <p className="mt-2 font-semibold text-white">{router.lastSync}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+              <Card className="border-white/10 bg-white/[0.04] text-white">
+                <CardHeader>
+                  <CardTitle className="font-mono text-xl">Billing Lock Logic</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4">
+                    <div className="flex items-center gap-2 text-amber-100">
+                      <ShieldAlert className="h-4 w-4" />
+                      <p className="font-medium">Auto-suspension policy draft</p>
+                    </div>
+                    <p className="mt-2 text-sm text-amber-50/80">
+                      One overdue invoice triggers warnings. Two overdue invoices place the tenant in hard-lock mode
+                      until payment is captured.
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
+                        <span>Invoice compliance</span>
+                        <span>84%</span>
+                      </div>
+                      <Progress value={84} className="h-2 bg-white/10" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl bg-[#0d1729] p-4">
+                        <BellRing className="h-4 w-4 text-cyan-200" />
+                        <p className="mt-3 text-sm text-slate-300">Grace reminders</p>
+                        <p className="mt-1 text-xl font-semibold text-white">D-5, D-2, D+1</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#0d1729] p-4">
+                        <CreditCard className="h-4 w-4 text-emerald-200" />
+                        <p className="mt-3 text-sm text-slate-300">Next draft formula</p>
+                        <p className="mt-1 text-xl font-semibold text-white">Base + usage</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-white/10 bg-white/[0.04] text-white">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="font-mono text-xl">Invoices</CardTitle>
+                    <p className="mt-1 text-sm text-slate-400">Tenant-visible billing history and payment state.</p>
+                  </div>
+                  <FileSpreadsheet className="h-5 w-5 text-slate-400" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {invoices.map((invoice) => (
+                    <div key={invoice.id} className="rounded-2xl border border-white/10 bg-[#0d1729] p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-mono text-sm text-white">{invoice.id}</p>
+                          <p className="mt-1 text-sm text-slate-400">{invoice.period}</p>
+                          <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">{invoice.usage}</p>
+                        </div>
+                        <Badge className={`border ${invoiceTone[invoice.status]}`}>
+                          {invoice.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-xl font-semibold text-white">{invoice.amount}</p>
+                          <p className="text-sm text-slate-400">Due {invoice.dueDate}</p>
+                        </div>
+                        <Button variant="ghost" className="text-white hover:bg-white/10">
+                          Open
+                          <ArrowUpRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-6 lg:grid-cols-3">
+            <Card className="border-white/10 bg-white/[0.04] text-white">
+              <CardContent className="p-6">
+                <Users className="h-5 w-5 text-cyan-200" />
+                <h3 className="mt-4 font-mono text-lg">Multi-ISP Foundation</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  We are introducing tenancy, invoice state, and router ownership without touching the current portal
+                  routes your existing ISP depends on.
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="border-white/10 bg-white/[0.04] text-white">
+              <CardContent className="p-6">
+                <Wifi className="h-5 w-5 text-emerald-200" />
+                <h3 className="mt-4 font-mono text-lg">Router Ops</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Remote provisioning is being shaped as a job system so changes are auditable, retryable, and safe for
+                  large router fleets.
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="border-white/10 bg-white/[0.04] text-white">
+              <CardContent className="p-6">
+                <Zap className="h-5 w-5 text-amber-200" />
+                <h3 className="mt-4 font-mono text-lg">Billing Enforcement</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  The future lock screen will be backend-enforced, not just a modal, so suspended tenants cannot bypass
+                  the invoice gate.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default TenantWorkspace;

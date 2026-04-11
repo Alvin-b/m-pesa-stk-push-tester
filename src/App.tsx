@@ -8,6 +8,9 @@ import Portal from "./pages/Portal";
 import AdminLogin from "./pages/AdminLogin";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
+import TenantWorkspace from "./pages/TenantWorkspace";
+import PlatformAdmin from "./pages/PlatformAdmin";
+import BillingLockPreview from "./pages/BillingLockPreview";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +26,9 @@ const App = () => (
             <Route path="/portal" element={<Portal />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/workspace" element={<TenantWorkspace />} />
+            <Route path="/workspace/billing-lock" element={<BillingLockPreview />} />
+            <Route path="/orchestra/control-room" element={<PlatformAdmin />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
