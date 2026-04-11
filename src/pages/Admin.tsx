@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import networkBg from "@/assets/network-bg.png";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { usePlatform } from "@/lib/platform";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,7 @@ type ActiveSection = "overview" | "analytics" | "vouchers" | "sessions" | "packa
 
 const Admin = () => {
   const { user, isAdmin, loading: authLoading, signOut } = useAuth();
+  const { activeTenant, tenantMembershipRole, loading: platformLoading } = usePlatform();
   const navigate = useNavigate();
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [packages, setPackages] = useState<PackageRow[]>([]);
@@ -110,23 +112,55 @@ const Admin = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const canAccessAdmin = isAdmin || !!tenantMembershipRole;
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/admin/login");
-    if (!authLoading && user && !isAdmin) navigate("/admin/login");
-  }, [authLoading, user, isAdmin, navigate]);
+    if (!authLoading && !platformLoading && user && !canAccessAdmin) navigate("/admin/login");
+  }, [authLoading, platformLoading, user, canAccessAdmin, navigate]);
 
   useEffect(() => {
     if (user) loadData();
-  }, [user]);
+  }, [user, activeTenant?.id]);
+
+  const hasScopedTenant = !!activeTenant?.id && activeTenant.id !== "legacy-fallback";
 
   const loadData = async () => {
     setLoadingData(true);
+    let vouchersQuery = supabase
+      .from("vouchers")
+      .select("*, packages(name, duration_minutes, price)")
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    let packagesQuery = supabase
+      .from("packages")
+      .select("*")
+      .order("price");
+
+    let sessionsQuery = supabase
+      .from("sessions")
+      .select("*, vouchers(code, phone_number, packages(name))")
+      .order("started_at", { ascending: false })
+      .limit(200);
+
+    let routerSettingsQuery = supabase
+      .from("router_settings")
+      .select("*")
+      .limit(1);
+
+    if (hasScopedTenant && activeTenant?.id) {
+      vouchersQuery = vouchersQuery.eq("tenant_id", activeTenant.id);
+      packagesQuery = packagesQuery.eq("tenant_id", activeTenant.id);
+      sessionsQuery = sessionsQuery.eq("tenant_id", activeTenant.id);
+      routerSettingsQuery = routerSettingsQuery.eq("tenant_id", activeTenant.id);
+    }
+
     const [vRes, pRes, sRes, rRes] = await Promise.all([
-      supabase.from("vouchers").select("*, packages(name, duration_minutes, price)").order("created_at", { ascending: false }).limit(500),
-      supabase.from("packages").select("*").order("price"),
-      supabase.from("sessions").select("*, vouchers(code, phone_number, packages(name))").order("started_at", { ascending: false }).limit(200),
-      supabase.from("router_settings").select("*").limit(1).maybeSingle(),
+      vouchersQuery,
+      packagesQuery,
+      sessionsQuery,
+      routerSettingsQuery.maybeSingle(),
     ]);
     if (vRes.data) setVouchers(vRes.data as unknown as VoucherRow[]);
     if (pRes.data) setPackages(pRes.data as PackageRow[]);
@@ -195,6 +229,7 @@ const Admin = () => {
       price: newPkg.price,
       speed_limit: newPkg.speed_limit || null,
       device_limit: newPkg.device_limit,
+      ...(hasScopedTenant && activeTenant?.id ? { tenant_id: activeTenant.id } : {}),
     }]);
     setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "", device_limit: 1 });
     setSavingPkg(false);
@@ -202,7 +237,11 @@ const Admin = () => {
   };
 
   const deletePackage = async (id: string) => {
-    await supabase.from("packages").update({ is_active: false }).eq("id", id);
+    let query = supabase.from("packages").update({ is_active: false }).eq("id", id);
+    if (hasScopedTenant && activeTenant?.id) {
+      query = query.eq("tenant_id", activeTenant.id);
+    }
+    await query;
     loadData();
   };
 
@@ -212,7 +251,7 @@ const Admin = () => {
     setGeneratedCode("");
     try {
       const { data, error } = await supabase.functions.invoke("generate-voucher", {
-        body: { packageId: genPkgId, phoneNumber: genPhone || undefined },
+        body: { packageId: genPkgId, phoneNumber: genPhone || undefined, tenantId: activeTenant?.id },
       });
       if (error) throw error;
       if (data?.code) setGeneratedCode(data.code);
@@ -226,7 +265,7 @@ const Admin = () => {
   const revokeVoucher = async (id: string, code: string) => {
     setRevoking(id);
     try {
-      await supabase.functions.invoke("revoke-voucher", { body: { voucherId: id, code } });
+      await supabase.functions.invoke("revoke-voucher", { body: { voucherId: id, code, tenantId: activeTenant?.id } });
       loadData();
     } catch (err: any) {
       console.error(err);
@@ -243,9 +282,17 @@ const Admin = () => {
   const saveRouterSettings = async () => {
     setSavingRouter(true);
     if (routerSettings?.id) {
-      await supabase.from("router_settings").update(routerForm).eq("id", routerSettings.id);
+      let query = supabase.from("router_settings").update(routerForm).eq("id", routerSettings.id);
+      if (hasScopedTenant && activeTenant?.id) {
+        query = query.eq("tenant_id", activeTenant.id);
+      }
+      await query;
     } else {
-      await supabase.from("router_settings").insert([{ ...routerForm, created_by: user?.id }]);
+      await supabase.from("router_settings").insert([{
+        ...routerForm,
+        created_by: user?.id,
+        ...(hasScopedTenant && activeTenant?.id ? { tenant_id: activeTenant.id } : {}),
+      }]);
     }
     setSavingRouter(false);
     loadData();
@@ -270,7 +317,8 @@ const Admin = () => {
   };
 
   const generateRscScript = () => {
-    const portalUrl = window.location.origin + "/portal";
+    const portalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
+    const portalUrl = window.location.origin + portalPath;
     const iface = routerForm.hotspot_interface || "bridge-hotspot";
     const dns = routerForm.dns_name || "wifi.local";
     const ip = routerForm.router_ip || "10.10.0.1";
@@ -338,7 +386,8 @@ const Admin = () => {
   };
 
   const generateLoginHtml = () => {
-    const portalUrl = window.location.origin + "/portal";
+    const portalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
+    const portalUrl = window.location.origin + portalPath;
     const html = `<!DOCTYPE html><html><head><title>WiFi Login</title><meta http-equiv="refresh" content="0;url=${portalUrl}"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><p>Redirecting...</p><script>window.location.href="${portalUrl}";</script></body></html>`;
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
@@ -348,7 +397,7 @@ const Admin = () => {
 
   const activeSessions = sessions.filter(s => s.is_active && new Date(s.expires_at) > new Date());
 
-  if (authLoading || loadingData) {
+  if (authLoading || platformLoading || loadingData) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -449,7 +498,9 @@ const Admin = () => {
             </button>
             <div>
               <h1 className="text-lg font-bold font-mono text-foreground capitalize">{activeSection === "overview" ? "Dashboard Overview" : activeSection}</h1>
-              <p className="text-[10px] text-muted-foreground font-mono">Dashboard / {activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</p>
+              <p className="text-[10px] text-muted-foreground font-mono">
+                {activeTenant?.name || "Legacy ISP"} / {activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
+              </p>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={loadData} className="font-mono text-xs">

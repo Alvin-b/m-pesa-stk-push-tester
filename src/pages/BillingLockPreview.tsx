@@ -1,8 +1,55 @@
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth";
+import { usePlatform } from "@/lib/platform";
 import { AlertTriangle, CreditCard, FileText, LockKeyhole } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const BillingLockPreview = () => {
+  const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
+  const { activeTenant, loading: platformLoading } = usePlatform();
+  const [balance, setBalance] = useState("KES 48,920");
+  const [overdueCount, setOverdueCount] = useState(2);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate("/admin/login");
+    }
+  }, [authLoading, user, navigate]);
+
+  useEffect(() => {
+    if (!activeTenant?.id || activeTenant.id === "legacy-fallback") return;
+
+    const loadBalance = async () => {
+      try {
+        const { data } = await supabase
+          .from("billing_invoices" as never)
+          .select("total, status")
+          .eq("tenant_id", activeTenant.id)
+          .in("status", ["overdue", "due"]);
+
+        const rows = (data ?? []) as Array<{ total: number; status: string }>;
+        if (!rows.length) return;
+
+        const overdue = rows.filter((row) => row.status === "overdue");
+        const amount = rows.reduce((sum, row) => sum + (row.total ?? 0), 0);
+        setOverdueCount(Math.max(1, overdue.length));
+        setBalance(`KES ${amount.toLocaleString()}`);
+      } catch (error) {
+        console.warn("Billing lock preview using fallback amounts:", error);
+      }
+    };
+
+    void loadBalance();
+  }, [activeTenant?.id]);
+
+  if (authLoading || platformLoading) {
+    return <div className="min-h-screen bg-[#09101d]" />;
+  }
+
   return (
     <div className="min-h-screen bg-[#09101d] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,94,94,0.16),_transparent_28%),linear-gradient(180deg,_#09101d_0%,_#0f172a_55%,_#09101d_100%)]" />
@@ -15,7 +62,7 @@ const BillingLockPreview = () => {
             <div className="text-center">
               <p className="text-xs uppercase tracking-[0.3em] text-rose-200/80">Account Suspended</p>
               <h1 className="mt-3 font-mono text-3xl font-semibold tracking-tight md:text-4xl">
-                Your dashboard is locked until overdue invoices are cleared.
+                {activeTenant?.name || "Your account"} is locked until overdue invoices are cleared.
               </h1>
               <p className="mt-4 text-sm text-slate-300 md:text-base">
                 This is the hard-stop experience for tenants with two unpaid invoices. The lock has no dismiss action,
@@ -26,7 +73,7 @@ const BillingLockPreview = () => {
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-5 w-5 text-rose-200" />
                 <div>
-                  <p className="font-medium text-rose-100">2 invoices are overdue</p>
+                  <p className="font-medium text-rose-100">{overdueCount} invoices are overdue</p>
                   <p className="mt-1 text-sm text-rose-50/80">
                     Settle the outstanding balance to restore access to routers, packages, clients, and analytics.
                   </p>
@@ -36,7 +83,7 @@ const BillingLockPreview = () => {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded-2xl bg-white/5 p-5">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Outstanding Balance</p>
-                <p className="mt-3 text-3xl font-semibold text-white">KES 48,920</p>
+                <p className="mt-3 text-3xl font-semibold text-white">{balance}</p>
                 <p className="mt-2 text-sm text-slate-400">Covering March 2026 and April 2026 usage invoices.</p>
               </div>
               <div className="rounded-2xl bg-white/5 p-5">

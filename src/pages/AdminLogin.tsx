@@ -11,6 +11,8 @@ const AdminLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [businessSlug, setBusinessSlug] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -25,11 +27,11 @@ const AdminLogin = () => {
     setSuccess("");
 
     if (isSignUp) {
-      const { error } = await signUp(email, password, fullName);
+      const { error } = await signUp(email, password, fullName, businessName, businessSlug);
       if (error) {
         setError(error);
       } else {
-        setSuccess("Account created! Please check your email to verify your account before signing in.");
+        setSuccess("Account created. Verify your email, then sign in to open your tenant admin portal.");
         setIsSignUp(false);
       }
     } else {
@@ -86,16 +88,61 @@ const AdminLogin = () => {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignUp && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground font-mono">Full Name</label>
-                <Input
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="John Doe"
-                  required={isSignUp}
-                  className="font-mono bg-muted/30 h-11"
-                />
-              </div>
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground font-mono">Full Name</label>
+                  <Input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="John Doe"
+                    required={isSignUp}
+                    className="font-mono bg-muted/30 h-11"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground font-mono">ISP / Business Name</label>
+                  <Input
+                    value={businessName}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      setBusinessName(nextName);
+                      if (!businessSlug.trim()) {
+                        setBusinessSlug(
+                          nextName
+                            .toLowerCase()
+                            .trim()
+                            .replace(/[^a-z0-9]+/g, "-")
+                            .replace(/^-+|-+$/g, ""),
+                        );
+                      }
+                    }}
+                    placeholder="Nairobi Fibre Connect"
+                    required={isSignUp}
+                    className="font-mono bg-muted/30 h-11"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground font-mono">Portal Slug</label>
+                  <Input
+                    value={businessSlug}
+                    onChange={(e) =>
+                      setBusinessSlug(
+                        e.target.value
+                          .toLowerCase()
+                          .trim()
+                          .replace(/[^a-z0-9-]+/g, "-")
+                          .replace(/^-+|-+$/g, ""),
+                      )
+                    }
+                    placeholder="nairobi-fibre-connect"
+                    required={isSignUp}
+                    className="font-mono bg-muted/30 h-11"
+                  />
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    This becomes your portal path: `/portal/{businessSlug || "your-slug"}`
+                  </p>
+                </div>
+              </>
             )}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground font-mono">Email</label>

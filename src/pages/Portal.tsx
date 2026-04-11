@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +18,7 @@ interface Package {
   duration_minutes: number;
   price: number;
   speed_limit: string | null;
+  tenant_id?: string | null;
 }
 
 const PROCESSING_CODES = new Set([4999, "4999"]);
@@ -172,11 +174,15 @@ const syncVoucherRadius = async (code: string): Promise<RadiusSyncResult> => {
   };
 };
 
-const findVoucherByCodeOrReceipt = async (value: string, statuses?: string[]) => {
+const findVoucherByCodeOrReceipt = async (value: string, statuses?: string[], tenantId?: string | null) => {
   let query = supabase
     .from("vouchers")
     .select("*, packages(*)")
     .eq("code", value);
+
+  if (tenantId) {
+    query = query.eq("tenant_id", tenantId);
+  }
 
   if (statuses?.length) {
     query = query.in("status", statuses);
@@ -189,6 +195,10 @@ const findVoucherByCodeOrReceipt = async (value: string, statuses?: string[]) =>
       .from("vouchers")
       .select("*, packages(*)")
       .eq("mpesa_receipt", value);
+
+    if (tenantId) {
+      receiptQuery = receiptQuery.eq("tenant_id", tenantId);
+    }
 
     if (statuses?.length) {
       receiptQuery = receiptQuery.in("status", statuses);
@@ -274,6 +284,7 @@ const loginMikroTik = (code: string) => {
    COMPONENT
 ============================ */
 const Portal = () => {
+  const { tenantSlug } = useParams();
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedPkg, setSelectedPkg] = useState<Package | null>(null);
   const [step, setStep] = useState<Step>("packages");
@@ -288,6 +299,8 @@ const Portal = () => {
   const [mikrotikDetected, setMikrotikDetected] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
+  const [tenantName, setTenantName] = useState("WiFi Access Portal");
+  const [tenantPortalId, setTenantPortalId] = useState<string | null>(null);
 
   /* Init — save params, detect MikroTik, auto-reconnect, cleanup expired */
   useEffect(() => {
@@ -302,7 +315,7 @@ const Portal = () => {
     const stored = localStorage.getItem("active_code");
     if (stored && (mt.loginOnly || mt.login || mt.fromMikroTik)) {
       void (async () => {
-        const voucher = await findVoucherByCodeOrReceipt(stored);
+        const voucher = await findVoucherByCodeOrReceipt(stored, undefined, tenantPortalId);
         const status = voucher?.status as string | undefined;
         const expiresAtValue = typeof voucher?.expires_at === "string" ? voucher.expires_at : null;
         const expired = expiresAtValue ? new Date(expiresAtValue) < new Date() : false;
@@ -334,10 +347,35 @@ const Portal = () => {
     }
 
     // Fetch packages
-    supabase.from("packages").select("*").eq("is_active", true).order("price").then(({ data }) => {
+    void (async () => {
+      let resolvedTenantId: string | null = null;
+
+      if (tenantSlug) {
+        const { data: tenant } = await supabase
+          .from("tenants" as never)
+          .select("id, name, portal_title")
+          .eq("slug", tenantSlug)
+          .maybeSingle();
+
+        const resolvedTenant = tenant as { id: string; name: string; portal_title?: string | null } | null;
+        if (resolvedTenant) {
+          resolvedTenantId = resolvedTenant.id;
+          setTenantPortalId(resolvedTenant.id);
+          setTenantName(resolvedTenant.portal_title || resolvedTenant.name || "WiFi Access Portal");
+        }
+      } else {
+        setTenantName("WiFi Access Portal");
+      }
+
+      let packagesQuery = supabase.from("packages").select("*").eq("is_active", true).order("price");
+      if (resolvedTenantId) {
+        packagesQuery = packagesQuery.eq("tenant_id", resolvedTenantId);
+      }
+
+      const { data } = await packagesQuery;
       if (data) setPackages(data as Package[]);
-    });
-  }, []);
+    })();
+  }, [tenantSlug]);
 
   /* Session countdown timer */
   useEffect(() => {
@@ -367,11 +405,16 @@ const Portal = () => {
 
     // MAC binding check
     if (mt.mac) {
-      const { data: existing } = await supabase
+      let existingQuery = supabase
         .from("vouchers")
         .select("mac_address")
-        .eq("code", voucher)
-        .maybeSingle();
+        .eq("code", voucher);
+
+      if (tenantPortalId) {
+        existingQuery = existingQuery.eq("tenant_id", tenantPortalId);
+      }
+
+      const { data: existing } = await existingQuery.maybeSingle();
 
       if (existing?.mac_address && existing.mac_address !== mt.mac) {
         setError("This voucher is already used on another device.");
@@ -381,18 +424,29 @@ const Portal = () => {
       }
 
       // Save MAC address to voucher
-      await supabase
+      let updateQuery = supabase
         .from("vouchers")
         .update({ mac_address: mt.mac })
         .eq("code", voucher);
+
+      if (tenantPortalId) {
+        updateQuery = updateQuery.eq("tenant_id", tenantPortalId);
+      }
+
+      await updateQuery;
     }
 
     // Get expiry for countdown
-    const { data: voucherData } = await supabase
+    let voucherQuery = supabase
       .from("vouchers")
       .select("expires_at")
-      .eq("code", voucher)
-      .maybeSingle();
+      .eq("code", voucher);
+
+    if (tenantPortalId) {
+      voucherQuery = voucherQuery.eq("tenant_id", tenantPortalId);
+    }
+
+    const { data: voucherData } = await voucherQuery.maybeSingle();
 
     if (voucherData?.expires_at) {
       setExpiresAt(new Date(voucherData.expires_at));
@@ -427,10 +481,10 @@ const Portal = () => {
     }
 
     // Try as access code first (active or pending)
-    let voucher = await findVoucherByCodeOrReceipt(code, ["active", "pending"]);
+    let voucher = await findVoucherByCodeOrReceipt(code, ["active", "pending"], tenantPortalId);
 
     if (!voucher) {
-      const inactiveVoucher = await findVoucherByCodeOrReceipt(code);
+      const inactiveVoucher = await findVoucherByCodeOrReceipt(code, undefined, tenantPortalId);
       const inactiveStatus = inactiveVoucher?.status as string | undefined;
       const inactiveExpired = inactiveVoucher?.expires_at
         ? new Date(inactiveVoucher.expires_at) < new Date()
@@ -508,7 +562,7 @@ const Portal = () => {
 
     try {
       const { data, error: fnError } = await supabase.functions.invoke("mpesa-stk-push", {
-        body: { phone, amount: selectedPkg.price, packageId: selectedPkg.id },
+        body: { phone, amount: selectedPkg.price, packageId: selectedPkg.id, tenantId: tenantPortalId },
       });
 
       if (fnError || data?.error) {
@@ -551,7 +605,7 @@ const Portal = () => {
           )?.Value || queryData?.data?.MpesaReceiptNumber || null;
 
           const { data: confirmRes, error: confirmErr } = await supabase.functions.invoke("confirm-payment", {
-            body: { checkoutRequestId, mpesaReceipt },
+            body: { checkoutRequestId, mpesaReceipt, tenantId: tenantPortalId },
           });
 
           console.log("confirm-payment result:", confirmRes, confirmErr);
@@ -561,11 +615,16 @@ const Portal = () => {
             await connectUser(code);
           } else {
             // Fallback: look up voucher
-            const { data: voucher } = await supabase
+            let voucherLookup = supabase
               .from("vouchers")
               .select("code")
-              .eq("checkout_request_id", checkoutRequestId)
-              .maybeSingle();
+              .eq("checkout_request_id", checkoutRequestId);
+
+            if (tenantPortalId) {
+              voucherLookup = voucherLookup.eq("tenant_id", tenantPortalId);
+            }
+
+            const { data: voucher } = await voucherLookup.maybeSingle();
             if (voucher?.code) {
               await connectUser(voucher.code);
             } else {
@@ -649,7 +708,7 @@ const Portal = () => {
           <Wifi className="h-8 w-8 text-white" />
         </div>
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-          WiFi Access Portal
+          {tenantName}
         </h1>
         <p className="text-muted-foreground text-sm mt-1.5 max-w-xs mx-auto">
           Fast, reliable internet — connect in seconds

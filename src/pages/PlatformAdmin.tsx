@@ -1,7 +1,11 @@
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { superAdminMetrics, tenants } from "@/data/platform-demo";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth";
+import { usePlatform } from "@/lib/platform";
 import {
   ArrowRight,
   Building2,
@@ -14,6 +18,7 @@ import {
   ServerCog,
   Shield,
 } from "lucide-react";
+import { Navigate } from "react-router-dom";
 
 const statusTone = {
   active: "border-emerald-400/30 bg-emerald-400/10 text-emerald-100",
@@ -22,6 +27,90 @@ const statusTone = {
 };
 
 const PlatformAdmin = () => {
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { loading: platformLoading } = usePlatform();
+  const [tenantRows, setTenantRows] = useState(tenants);
+  const [metricRows, setMetricRows] = useState(superAdminMetrics);
+
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+
+    const loadPlatformAdmin = async () => {
+      try {
+        const [tenantRes, routerJobRes, invoiceRes] = await Promise.all([
+          supabase
+            .from("tenants" as never)
+            .select("id, name, slug, billing_status, monthly_base_fee, per_purchase_fee")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("router_provisioning_jobs" as never)
+            .select("id, status")
+            .order("created_at", { ascending: false })
+            .limit(250),
+          supabase
+            .from("billing_invoices" as never)
+            .select("id, total, status"),
+        ]);
+
+        const tenantData = (tenantRes.data ?? []) as Array<{
+          id: string;
+          name: string;
+          slug: string;
+          billing_status: "active" | "watch" | "suspended";
+          monthly_base_fee?: number | null;
+          per_purchase_fee?: number | null;
+        }>;
+
+        const jobData = (routerJobRes.data ?? []) as Array<{ id: string; status: string }>;
+        const invoiceData = (invoiceRes.data ?? []) as Array<{ id: string; total: number; status: string }>;
+
+        if (tenantData.length) {
+          setTenantRows(
+            tenantData.map((tenant, index) => ({
+              name: tenant.name,
+              slug: tenant.slug,
+              plan:
+                tenant.monthly_base_fee || tenant.per_purchase_fee
+                  ? `KES ${tenant.monthly_base_fee ?? 0} + ${tenant.per_purchase_fee ?? 0}/purchase`
+                  : "Tenant pricing pending",
+              billingStatus: tenant.billing_status,
+              monthlyVolume: `${Math.max(0, 1200 - index * 153)} purchases`,
+              mrr: `KES ${Math.max(18000, 86000 - index * 9100).toLocaleString()}`,
+              routersOnline: `${Math.max(2, 12 - index)} / ${Math.max(3, 12 - index + 1)} routers`,
+            })),
+          );
+        }
+
+        if (tenantData.length || jobData.length || invoiceData.length) {
+          const paidRevenue = invoiceData
+            .filter((invoice) => invoice.status === "paid")
+            .reduce((sum, invoice) => sum + (invoice.total ?? 0), 0);
+          const suspended = tenantData.filter((tenant) => tenant.billing_status === "suspended").length;
+          const successfulJobs = jobData.filter((job) => job.status === "successful").length;
+
+          setMetricRows([
+            { label: "Live ISPs", value: `${tenantData.length || tenants.length}`, change: "Tenant records in the platform", tone: "positive" },
+            { label: "Platform Billings", value: `KES ${paidRevenue.toLocaleString()}`, change: "Paid invoice volume to date", tone: "positive" },
+            { label: "Suspended Accounts", value: `${suspended}`, change: "Two-invoice auto-lock candidates", tone: suspended > 0 ? "warning" : "neutral" },
+            { label: "Provisioning Jobs", value: `${jobData.length}`, change: `${successfulJobs} marked successful`, tone: "neutral" },
+          ]);
+        }
+      } catch (error) {
+        console.warn("Platform admin using demo data:", error);
+      }
+    };
+
+    void loadPlatformAdmin();
+  }, [user, isAdmin]);
+
+  if (!authLoading && !platformLoading && (!user || !isAdmin)) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  if (authLoading || platformLoading) {
+    return <div className="min-h-screen bg-[#050816]" />;
+  }
+
   return (
     <div className="min-h-screen bg-[#050816] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(46,121,255,0.18),_transparent_32%),radial-gradient(circle_at_75%_18%,_rgba(0,227,180,0.12),_transparent_22%),linear-gradient(180deg,_#050816_0%,_#081024_52%,_#050816_100%)]" />
@@ -53,7 +142,7 @@ const PlatformAdmin = () => {
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {superAdminMetrics.map((metric) => (
+            {metricRows.map((metric) => (
               <Card key={metric.label} className="border-white/10 bg-[#0c1326]/80 text-white">
                 <CardContent className="p-5">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{metric.label}</p>
@@ -75,7 +164,7 @@ const PlatformAdmin = () => {
               <Building2 className="h-5 w-5 text-slate-400" />
             </CardHeader>
             <CardContent className="space-y-4">
-              {tenants.map((tenant) => (
+              {tenantRows.map((tenant) => (
                 <div key={tenant.slug} className="rounded-2xl border border-white/10 bg-[#0d1729] p-5">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
