@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertTenantManager } from "../_shared/tenant-access.ts";
+import { generateUniqueVoucherCode } from "../_shared/vouchers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,17 +22,23 @@ serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw new Error("Unauthorized");
-    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    if (!isAdmin) throw new Error("Forbidden");
-
-    const { packageId, phoneNumber } = await req.json();
+    const { packageId, phoneNumber, tenantId } = await req.json();
     if (!packageId) throw new Error("Package ID required");
+    await assertTenantManager(supabase, user.id, tenantId);
 
     // Get package details
-    const { data: pkg, error: pkgErr } = await supabase.from("packages").select("duration_minutes, speed_limit").eq("id", packageId).single();
+    let packageQuery = supabase
+      .from("packages")
+      .select("duration_minutes, speed_limit, tenant_id")
+      .eq("id", packageId);
+    if (tenantId) {
+      packageQuery = packageQuery.eq("tenant_id", tenantId);
+    }
+
+    const { data: pkg, error: pkgErr } = await packageQuery.single();
     if (pkgErr || !pkg) throw new Error("Package not found");
 
-    const code = Array.from({ length: 5 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
+    const code = await generateUniqueVoucherCode(supabase);
     const durationSeconds = pkg.duration_minutes * 60;
 
     // Calculate expiry datetime
@@ -46,6 +54,7 @@ serve(async (req) => {
       status: "active",
       expires_at: expiresAt.toISOString(),
       session_timeout: durationSeconds,
+      tenant_id: tenantId || pkg.tenant_id || null,
     }).select().single();
 
     if (vErr) throw vErr;

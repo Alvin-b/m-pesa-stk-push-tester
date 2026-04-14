@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { activateVoucher } from "../_shared/activate-voucher.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { checkoutRequestId, mpesaReceipt } = await req.json();
+    const { checkoutRequestId, mpesaReceipt, tenantId } = await req.json();
 
     if (!checkoutRequestId) {
       return new Response(JSON.stringify({ error: 'checkoutRequestId is required' }), {
@@ -26,20 +27,30 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, supabaseKey);
 
     // Find the pending voucher for this checkout
-    const { data: voucher, error: vErr } = await sb
+    let pendingVoucherQuery = sb
       .from('vouchers')
       .select('*, packages(duration_minutes, speed_limit)')
       .eq('checkout_request_id', checkoutRequestId)
-      .eq('status', 'pending')
-      .maybeSingle();
+      .eq('status', 'pending');
+
+    if (tenantId) {
+      pendingVoucherQuery = pendingVoucherQuery.eq('tenant_id', tenantId);
+    }
+
+    const { data: voucher, error: vErr } = await pendingVoucherQuery.maybeSingle();
 
     if (vErr || !voucher) {
       // Check if already activated (idempotent)
-      const { data: existing } = await sb
+      let existingVoucherQuery = sb
         .from('vouchers')
         .select('code, status')
-        .eq('checkout_request_id', checkoutRequestId)
-        .maybeSingle();
+        .eq('checkout_request_id', checkoutRequestId);
+
+      if (tenantId) {
+        existingVoucherQuery = existingVoucherQuery.eq('tenant_id', tenantId);
+      }
+
+      const { data: existing } = await existingVoucherQuery.maybeSingle();
 
       if (existing?.status === 'active') {
         return new Response(JSON.stringify({ success: true, code: existing.code, alreadyActivated: true }), {
@@ -54,50 +65,26 @@ serve(async (req) => {
       });
     }
 
-    const code = voucher.code;
-    const durationSeconds = voucher.session_timeout ||
-      (voucher.packages?.duration_minutes ? voucher.packages.duration_minutes * 60 : 3600);
-    const speedLimit = voucher.packages?.speed_limit || null;
+    const activation = await activateVoucher(sb, voucher, mpesaReceipt || null);
+    const code = activation.code;
 
-    // Calculate expiry
-    const expiresAt = new Date(Date.now() + durationSeconds * 1000);
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const expirationStr = `${months[expiresAt.getMonth()]} ${String(expiresAt.getDate()).padStart(2,'0')} ${expiresAt.getFullYear()} ${String(expiresAt.getHours()).padStart(2,'0')}:${String(expiresAt.getMinutes()).padStart(2,'0')}:${String(expiresAt.getSeconds()).padStart(2,'0')}`;
+    await sb
+      .from('payment_transactions')
+      .update({
+        voucher_id: voucher.id,
+        provider_reference: mpesaReceipt || null,
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        metadata: {
+          checkout_request_id: checkoutRequestId,
+          voucher_code: code,
+          activated_via: 'confirm-payment',
+        },
+      })
+      .eq('provider_id', 'mpesa')
+      .eq('provider_checkout_id', checkoutRequestId);
 
-    // Activate the voucher
-    await sb.from('vouchers').update({
-      status: 'active',
-      mpesa_receipt: mpesaReceipt || null,
-      activated_at: new Date().toISOString(),
-      expires_at: expiresAt.toISOString(),
-    }).eq('id', voucher.id);
-
-    // Create RADIUS credentials (check for duplicates)
-    const { data: existingRadcheck } = await sb
-      .from('radcheck')
-      .select('id')
-      .eq('username', code)
-      .maybeSingle();
-
-    if (!existingRadcheck) {
-      // radcheck: Password + Session-Timeout + Expiration
-      await sb.from('radcheck').insert([
-        { username: code, attribute: 'Cleartext-Password', op: ':=', value: code },
-        { username: code, attribute: 'Session-Timeout', op: ':=', value: String(durationSeconds) },
-        { username: code, attribute: 'Expiration', op: ':=', value: expirationStr },
-      ]);
-
-      // radreply: Session-Timeout + Mikrotik-Rate-Limit
-      const radreplyRows: { username: string; attribute: string; op: string; value: string }[] = [
-        { username: code, attribute: 'Session-Timeout', op: '=', value: String(durationSeconds) },
-      ];
-      if (speedLimit) {
-        radreplyRows.push({ username: code, attribute: 'Mikrotik-Rate-Limit', op: '=', value: speedLimit });
-      }
-      await sb.from('radreply').insert(radreplyRows);
-    }
-
-    console.log(`Voucher ${code} activated with ${durationSeconds}s timeout, expiry ${expirationStr}`);
+    console.log(`Voucher ${code} activated for checkout ${checkoutRequestId}`);
 
     return new Response(JSON.stringify({ success: true, code }), {
       status: 200,

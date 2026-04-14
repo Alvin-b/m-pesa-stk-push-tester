@@ -21,6 +21,14 @@ interface Package {
   tenant_id?: string | null;
 }
 
+interface PaymentOption {
+  providerId: "mpesa" | "paystack";
+  displayName: string;
+  flowType: string;
+  requiresPhone: boolean;
+  requiresEmail: boolean;
+}
+
 const PROCESSING_CODES = new Set([4999, "4999"]);
 
 const FAILURE_CODES: Record<string, string> = {
@@ -34,10 +42,12 @@ const FAILURE_CODES: Record<string, string> = {
 };
 
 type Step = "packages" | "payment" | "waiting" | "success" | "connecting" | "failed";
+const LEGACY_TENANT_SLUG = "legacy-isp";
 const MIKROTIK_STORAGE_KEY = "mt_params";
 const DEFAULT_MIKROTIK_LOGIN_URL = "http://wifi.local/login";
 const RADIUS_AUTH_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/radius-auth`;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+const getActiveCodeStorageKey = (tenantSlug?: string | null) => `active_code:${tenantSlug || LEGACY_TENANT_SLUG}`;
 
 interface RadiusAuthResult {
   status: "accepted" | "rejected" | "unreachable";
@@ -106,7 +116,7 @@ const getVoucherLifecycleMessage = (status?: string | null, expired = false): st
   return "";
 };
 
-const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
+const validateRadiusCode = async (code: string, tenantId?: string | null): Promise<RadiusAuthResult> => {
   try {
     const response = await fetch(RADIUS_AUTH_URL, {
       method: "POST",
@@ -115,7 +125,7 @@ const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
         apikey: SUPABASE_PUBLISHABLE_KEY,
         Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
       },
-      body: JSON.stringify({ username: code, password: code }),
+      body: JSON.stringify({ username: code, password: code, tenantId }),
     });
 
     let payload: Record<string, unknown> | null = null;
@@ -152,9 +162,9 @@ const validateRadiusCode = async (code: string): Promise<RadiusAuthResult> => {
   }
 };
 
-const syncVoucherRadius = async (code: string): Promise<RadiusSyncResult> => {
+const syncVoucherRadius = async (code: string, tenantId?: string | null): Promise<RadiusSyncResult> => {
   const { data, error } = await supabase.functions.invoke("sync-voucher-radius", {
-    body: { code },
+    body: { code, tenantId },
   });
 
   if (error) {
@@ -189,6 +199,24 @@ const findVoucherByCodeOrReceipt = async (value: string, statuses?: string[], te
   }
 
   let { data: voucher } = await query.maybeSingle();
+
+  if (!voucher) {
+    let checkoutQuery = supabase
+      .from("vouchers")
+      .select("*, packages(*)")
+      .eq("checkout_request_id", value);
+
+    if (tenantId) {
+      checkoutQuery = checkoutQuery.eq("tenant_id", tenantId);
+    }
+
+    if (statuses?.length) {
+      checkoutQuery = checkoutQuery.in("status", statuses);
+    }
+
+    const { data: checkoutVoucher } = await checkoutQuery.maybeSingle();
+    voucher = checkoutVoucher;
+  }
 
   if (!voucher) {
     let receiptQuery = supabase
@@ -285,10 +313,13 @@ const loginMikroTik = (code: string) => {
 ============================ */
 const Portal = () => {
   const { tenantSlug } = useParams();
+  const scopedTenantSlug = tenantSlug || LEGACY_TENANT_SLUG;
+  const activeCodeStorageKey = getActiveCodeStorageKey(scopedTenantSlug);
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedPkg, setSelectedPkg] = useState<Package | null>(null);
   const [step, setStep] = useState<Step>("packages");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [accessInput, setAccessInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [voucherCode, setVoucherCode] = useState("");
@@ -301,6 +332,8 @@ const Portal = () => {
   const [timeLeft, setTimeLeft] = useState("");
   const [tenantName, setTenantName] = useState("WiFi Access Portal");
   const [tenantPortalId, setTenantPortalId] = useState<string | null>(null);
+  const [paymentOptions, setPaymentOptions] = useState<PaymentOption[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<PaymentOption["providerId"]>("mpesa");
 
   /* Init — save params, detect MikroTik, auto-reconnect, cleanup expired */
   useEffect(() => {
@@ -311,60 +344,32 @@ const Portal = () => {
     // Trigger cleanup of expired sessions (fire-and-forget)
     supabase.functions.invoke("cleanup-expired", { body: {} }).catch(() => {});
 
-    // Auto-reconnect if user has active code stored
-    const stored = localStorage.getItem("active_code");
-    if (stored && (mt.loginOnly || mt.login || mt.fromMikroTik)) {
-      void (async () => {
-        const voucher = await findVoucherByCodeOrReceipt(stored, undefined, tenantPortalId);
-        const status = voucher?.status as string | undefined;
-        const expiresAtValue = typeof voucher?.expires_at === "string" ? voucher.expires_at : null;
-        const expired = expiresAtValue ? new Date(expiresAtValue) < new Date() : false;
-        const lifecycleMessage = getVoucherLifecycleMessage(status, expired);
-
-        if (!voucher || status === "revoked" || status === "expired" || expired) {
-          localStorage.removeItem("active_code");
-          setError(lifecycleMessage || INACTIVE_CODE_ERROR);
-          setStep("packages");
-          return;
-        }
-
-        const radiusCheck = await validateRadiusCode(stored);
-        if (radiusCheck.status !== "accepted") {
-          if (radiusCheck.shouldForgetCode || radiusCheck.status === "rejected") {
-            localStorage.removeItem("active_code");
-          }
-          setError(lifecycleMessage || radiusCheck.message || DEFAULT_RADIUS_ERROR);
-          setStep("packages");
-          return;
-        }
-
-        if (expiresAtValue) {
-          setExpiresAt(new Date(expiresAtValue));
-        }
-
-        loginMikroTik(stored);
-      })();
-    }
-
-    // Fetch packages
     void (async () => {
       let resolvedTenantId: string | null = null;
+      let resolvedTenantName = "WiFi Access Portal";
 
-      if (tenantSlug) {
-        const { data: tenant } = await supabase
-          .from("tenants" as never)
-          .select("id, name, portal_title")
-          .eq("slug", tenantSlug)
-          .maybeSingle();
+      const { data: tenant } = await supabase
+        .from("tenants")
+        .select("id, name, portal_title")
+        .eq("slug", scopedTenantSlug)
+        .maybeSingle();
 
-        const resolvedTenant = tenant as { id: string; name: string; portal_title?: string | null } | null;
-        if (resolvedTenant) {
-          resolvedTenantId = resolvedTenant.id;
-          setTenantPortalId(resolvedTenant.id);
-          setTenantName(resolvedTenant.portal_title || resolvedTenant.name || "WiFi Access Portal");
-        }
-      } else {
-        setTenantName("WiFi Access Portal");
+      const resolvedTenant = tenant as { id: string; name: string; portal_title?: string | null } | null;
+      if (resolvedTenant) {
+        resolvedTenantId = resolvedTenant.id;
+        resolvedTenantName = resolvedTenant.portal_title || resolvedTenant.name || "WiFi Access Portal";
+      }
+
+      setTenantPortalId(resolvedTenantId);
+      setTenantName(resolvedTenantName);
+
+      const { data: paymentOptionData } = await supabase.functions.invoke("list-payment-options", {
+        body: { tenantId: resolvedTenantId },
+      });
+      const resolvedPaymentOptions = (paymentOptionData?.options as PaymentOption[] | undefined) || [];
+      setPaymentOptions(resolvedPaymentOptions);
+      if (resolvedPaymentOptions.length > 0) {
+        setSelectedProvider(resolvedPaymentOptions[0].providerId);
       }
 
       let packagesQuery = supabase.from("packages").select("*").eq("is_active", true).order("price");
@@ -373,9 +378,83 @@ const Portal = () => {
       }
 
       const { data } = await packagesQuery;
-      if (data) setPackages(data as Package[]);
+      setPackages((data as Package[]) || []);
+
+      const queryParams = new URLSearchParams(window.location.search);
+      const paystackReference = queryParams.get("reference") || queryParams.get("trxref");
+      const paystackStatus = queryParams.get("status");
+
+      if (paystackReference && (!paystackStatus || paystackStatus === "success")) {
+        setSelectedProvider("paystack");
+        setStep("waiting");
+        setLoading(true);
+
+        const { data: verifyData, error: verifyError } = await supabase.functions.invoke("paystack-verify", {
+          body: { reference: paystackReference, tenantId: resolvedTenantId },
+        });
+
+        if (verifyError || verifyData?.error || !verifyData?.success) {
+          setLoading(false);
+          setStep("failed");
+          setFailureReason(
+            verifyError?.message ||
+            verifyData?.error ||
+            "We couldn't confirm your Paystack payment yet. If you were charged, contact support.",
+          );
+        } else if (verifyData?.code) {
+          setLoading(false);
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.delete("reference");
+          nextUrl.searchParams.delete("trxref");
+          nextUrl.searchParams.delete("status");
+          window.history.replaceState({}, "", nextUrl.toString());
+          await connectUser(verifyData.code);
+          return;
+        }
+
+        return;
+      }
+
+      const stored =
+        localStorage.getItem(activeCodeStorageKey) ||
+        (scopedTenantSlug === LEGACY_TENANT_SLUG ? localStorage.getItem("active_code") : null);
+
+      if (!stored || (!mt.loginOnly && !mt.login && !mt.fromMikroTik)) {
+        return;
+      }
+
+      const voucher = await findVoucherByCodeOrReceipt(stored, undefined, resolvedTenantId);
+      const status = voucher?.status as string | undefined;
+      const expiresAtValue = typeof voucher?.expires_at === "string" ? voucher.expires_at : null;
+      const expired = expiresAtValue ? new Date(expiresAtValue) < new Date() : false;
+      const lifecycleMessage = getVoucherLifecycleMessage(status, expired);
+
+      if (!voucher || status === "revoked" || status === "expired" || expired) {
+        localStorage.removeItem(activeCodeStorageKey);
+        localStorage.removeItem("active_code");
+        setError(lifecycleMessage || INACTIVE_CODE_ERROR);
+        setStep("packages");
+        return;
+      }
+
+      const radiusCheck = await validateRadiusCode(stored, resolvedTenantId);
+      if (radiusCheck.status !== "accepted") {
+        if (radiusCheck.shouldForgetCode || radiusCheck.status === "rejected") {
+          localStorage.removeItem(activeCodeStorageKey);
+          localStorage.removeItem("active_code");
+        }
+        setError(lifecycleMessage || radiusCheck.message || DEFAULT_RADIUS_ERROR);
+        setStep("packages");
+        return;
+      }
+
+      if (expiresAtValue) {
+        setExpiresAt(new Date(expiresAtValue));
+      }
+
+      loginMikroTik(stored);
     })();
-  }, [tenantSlug]);
+  }, [activeCodeStorageKey, scopedTenantSlug]);
 
   /* Session countdown timer */
   useEffect(() => {
@@ -384,6 +463,7 @@ const Portal = () => {
       const diff = expiresAt.getTime() - Date.now();
       if (diff <= 0) {
         setTimeLeft("Expired");
+        localStorage.removeItem(activeCodeStorageKey);
         localStorage.removeItem("active_code");
         clearInterval(interval);
         return;
@@ -395,7 +475,7 @@ const Portal = () => {
       else setTimeLeft(`${mins}m ${secs}s`);
     }, 1000);
     return () => clearInterval(interval);
-  }, [expiresAt]);
+  }, [activeCodeStorageKey, expiresAt]);
 
   /* ============================
      CONNECT USER — core logic with MAC binding
@@ -453,7 +533,8 @@ const Portal = () => {
     }
 
     // Store for auto-reconnect
-    localStorage.setItem("active_code", voucher);
+    localStorage.setItem(activeCodeStorageKey, voucher);
+    localStorage.removeItem("active_code");
     setVoucherCode(voucher);
 
     // Login to MikroTik
@@ -472,7 +553,7 @@ const Portal = () => {
     setLoading(true);
     setError("");
     const code = accessInput.trim().toUpperCase();
-    const initialRadiusCheck = await validateRadiusCode(code);
+    const initialRadiusCheck = await validateRadiusCode(code, tenantPortalId);
 
     if (initialRadiusCheck.status === "accepted") {
       setLoading(false);
@@ -506,17 +587,40 @@ const Portal = () => {
 
     // If voucher is pending, activate it now (payment was confirmed but activation didn't complete)
     if (voucher.status === "pending") {
-      const { data: confirmData, error: confirmErr } = await supabase.functions.invoke("confirm-payment", {
-        body: { checkoutRequestId: voucher.checkout_request_id || code, mpesaReceipt: voucher.mpesa_receipt },
-      });
-      if (confirmErr || !confirmData?.success) {
-        setError("Failed to activate your voucher. Please try again or contact support.");
-        setLoading(false);
-        return;
-      }
+      const looksLikePaystackReference =
+        !!voucher.checkout_request_id &&
+        code === String(voucher.checkout_request_id).trim().toUpperCase();
 
-      if (typeof confirmData?.code === "string" && confirmData.code.trim()) {
-        resolvedCode = confirmData.code.trim().toUpperCase();
+      if (looksLikePaystackReference) {
+        const { data: verifyData, error: verifyError } = await supabase.functions.invoke("paystack-verify", {
+          body: {
+            reference: voucher.checkout_request_id || code,
+            tenantId: tenantPortalId,
+          },
+        });
+
+        if (verifyError || !verifyData?.success) {
+          setError("Your Paystack payment is still pending or could not be verified yet.");
+          setLoading(false);
+          return;
+        }
+
+        if (typeof verifyData?.code === "string" && verifyData.code.trim()) {
+          resolvedCode = verifyData.code.trim().toUpperCase();
+        }
+      } else {
+        const { data: confirmData, error: confirmErr } = await supabase.functions.invoke("confirm-payment", {
+          body: { checkoutRequestId: voucher.checkout_request_id || code, mpesaReceipt: voucher.mpesa_receipt, tenantId: tenantPortalId },
+        });
+        if (confirmErr || !confirmData?.success) {
+          setError("Failed to activate your voucher. Please try again or contact support.");
+          setLoading(false);
+          return;
+        }
+
+        if (typeof confirmData?.code === "string" && confirmData.code.trim()) {
+          resolvedCode = confirmData.code.trim().toUpperCase();
+        }
       }
     }
 
@@ -526,15 +630,15 @@ const Portal = () => {
       return;
     }
 
-    const radiusCheck = resolvedCode === code && voucher.status !== "pending"
+      const radiusCheck = resolvedCode === code && voucher.status !== "pending"
       ? initialRadiusCheck
-      : await validateRadiusCode(resolvedCode);
+      : await validateRadiusCode(resolvedCode, tenantPortalId);
 
     let finalRadiusCheck = radiusCheck;
     if (finalRadiusCheck.status === "rejected") {
-      const syncResult = await syncVoucherRadius(resolvedCode);
+      const syncResult = await syncVoucherRadius(resolvedCode, tenantPortalId);
       if (syncResult.success) {
-        finalRadiusCheck = await validateRadiusCode(resolvedCode);
+        finalRadiusCheck = await validateRadiusCode(resolvedCode, tenantPortalId);
       } else if (voucher.status === "active") {
         setError(syncResult.message || "We found your voucher, but couldn't sync it with the network right now.");
         setLoading(false);
@@ -555,7 +659,7 @@ const Portal = () => {
   /* ============================
      PAYMENT FLOW
   ============================ */
-  const handlePayment = async () => {
+  const handleMpesaPayment = async () => {
     if (!selectedPkg || !phone) return;
     setLoading(true);
     setError("");
@@ -656,6 +760,46 @@ const Portal = () => {
     }
   };
 
+  const handlePaystackPayment = async () => {
+    if (!selectedPkg || !phone || !email.trim()) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      const callbackUrl = `${window.location.origin}/portal/${scopedTenantSlug}`;
+      const { data, error: fnError } = await supabase.functions.invoke("paystack-initiate", {
+        body: {
+          email: email.trim(),
+          phone,
+          amount: selectedPkg.price,
+          packageId: selectedPkg.id,
+          tenantId: tenantPortalId,
+          callbackUrl,
+        },
+      });
+
+      if (fnError || data?.error || !data?.authorizationUrl) {
+        setError(fnError?.message || data?.error || "Unable to start Paystack checkout");
+        setLoading(false);
+        return;
+      }
+
+      window.location.href = data.authorizationUrl as string;
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+      setLoading(false);
+    }
+  };
+
+  const handlePayment = async () => {
+    if (selectedProvider === "paystack") {
+      await handlePaystackPayment();
+      return;
+    }
+
+    await handleMpesaPayment();
+  };
+
   const handleCopyCode = () => {
     navigator.clipboard.writeText(voucherCode);
     setCopied(true);
@@ -667,6 +811,7 @@ const Portal = () => {
     setVoucherCode("");
     setAccessInput("");
     setPhone("");
+    setEmail("");
     setError("");
     setFailureReason("");
     setPollCount(0);
@@ -731,7 +876,7 @@ const Portal = () => {
                 </div>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Enter access code or M-Pesa receipt"
+                    placeholder="Enter access code, M-Pesa receipt, or Paystack reference"
                     value={accessInput}
                     onChange={(e) => setAccessInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleAccessInput()}
@@ -804,7 +949,7 @@ const Portal = () => {
           <div className="max-w-md mx-auto mt-4">
             <Card className="border-border bg-card/90 backdrop-blur shadow-xl shadow-primary/10">
               <CardContent className="p-6 space-y-5">
-                <div className="rounded-xl bg-primary/5 border border-primary/15 p-4 flex items-center gap-4">
+                  <div className="rounded-xl bg-primary/5 border border-primary/15 p-4 flex items-center gap-4">
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-md">
                     <Zap className="h-6 w-6 text-white" />
                   </div>
@@ -818,7 +963,26 @@ const Portal = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Safaricom Phone Number</label>
+                  <label className="text-sm font-medium text-foreground">Payment Method</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {paymentOptions.map((option) => (
+                      <Button
+                        key={option.providerId}
+                        type="button"
+                        variant={selectedProvider === option.providerId ? "default" : "outline"}
+                        onClick={() => setSelectedProvider(option.providerId)}
+                        className={`justify-center ${selectedProvider === option.providerId ? "bg-gradient-to-r from-primary to-accent text-white" : ""}`}
+                      >
+                        {option.displayName}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    {selectedProvider === "paystack" ? "Phone Number" : "Safaricom Phone Number"}
+                  </label>
                   <div className="relative">
                     <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -830,8 +994,27 @@ const Portal = () => {
                       className="font-mono pl-10 bg-secondary/50 h-12 text-base border-border focus:border-primary"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">You'll receive an M-Pesa prompt on this number</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedProvider === "paystack"
+                      ? "We use this to prefill your Paystack checkout details."
+                      : "You'll receive an M-Pesa prompt on this number."}
+                  </p>
                 </div>
+
+                {selectedProvider === "paystack" && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Email Address</label>
+                    <Input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handlePayment()}
+                      className="bg-secondary/50 h-12 text-base border-border focus:border-primary"
+                    />
+                    <p className="text-xs text-muted-foreground">Paystack requires an email to open the checkout page.</p>
+                  </div>
+                )}
 
                 {error && (
                   <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 rounded-lg p-3">
@@ -846,13 +1029,13 @@ const Portal = () => {
                   </Button>
                   <Button
                     onClick={handlePayment}
-                    disabled={loading || !phone.trim()}
+                    disabled={loading || !phone.trim() || (selectedProvider === "paystack" && !email.trim())}
                     className="flex-1 font-semibold h-12 text-base bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg shadow-primary/20"
                   >
                     {loading ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending prompt…</>
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {selectedProvider === "paystack" ? "Opening checkout…" : "Sending prompt…"}</>
                     ) : (
-                      <><Smartphone className="mr-2 h-4 w-4" /> Pay KES {selectedPkg.price}</>
+                      <><Smartphone className="mr-2 h-4 w-4" /> {selectedProvider === "paystack" ? `Continue to Paystack` : `Pay KES ${selectedPkg.price}`}</>
                     )}
                   </Button>
                 </div>
@@ -875,14 +1058,24 @@ const Portal = () => {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Waiting for Payment</h2>
-                  <p className="text-muted-foreground text-sm mt-2">Check your phone and enter your M-Pesa PIN</p>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    {selectedProvider === "paystack"
+                      ? "Confirming your Paystack payment and preparing your access code"
+                      : "Check your phone and enter your M-Pesa PIN"}
+                  </p>
                 </div>
                 <div className="bg-secondary/50 rounded-xl p-4 text-left space-y-3">
-                  {[
-                    { label: "STK push sent to your phone", done: true },
-                    { label: "Enter your M-Pesa PIN when prompted", done: false },
-                    { label: "Auto-connect after payment", done: false },
-                  ].map((item, i) => (
+                  {(selectedProvider === "paystack"
+                    ? [
+                        { label: "Payment detected from Paystack", done: true },
+                        { label: "Verifying the transaction", done: false },
+                        { label: "Activating your WiFi access", done: false },
+                      ]
+                    : [
+                        { label: "STK push sent to your phone", done: true },
+                        { label: "Enter your M-Pesa PIN when prompted", done: false },
+                        { label: "Auto-connect after payment", done: false },
+                      ]).map((item, i) => (
                     <div key={i} className="flex items-center gap-3">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${item.done ? "bg-primary text-primary-foreground" : "bg-muted border-2 border-border"}`}>
                         {item.done ? <Check className="h-3.5 w-3.5" /> : <span className="text-xs text-muted-foreground font-bold">{i + 1}</span>}
@@ -893,7 +1086,7 @@ const Portal = () => {
                 </div>
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  Checking payment status
+                  {selectedProvider === "paystack" ? "Verifying payment status" : "Checking payment status"}
                   {pollCount > 0 && <span className="opacity-60">({pollCount * 3}s)</span>}
                 </div>
               </CardContent>
@@ -1025,10 +1218,10 @@ const Portal = () => {
       </div>
 
       <p className="relative z-10 text-center text-[10px] text-muted-foreground pb-4">
-        Powered by M-Pesa · Daraja API
+          Powered by M-Pesa, Paystack, and your Mikrotik billing cloud
       </p>
       <div className="relative z-10">
-        <SupportChat />
+      <SupportChat tenantId={tenantPortalId} />
       </div>
     </div>
   );

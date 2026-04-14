@@ -23,3 +23,18 @@ verify_jwt = false
 
 [functions.sync-voucher-radius]
 verify_jwt = false
+
+[functions.radius-auth]
+verify_jwt = false
+
+[functions.list-payment-options]
+verify_jwt = false
+
+[functions.paystack-initiate]
+verify_jwt = false
+
+[functions.paystack-verify]
+verify_jwt = false
+
+[functions.paystack-webhook]
+verify_jwt = false

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertTenantManager } from "../_shared/tenant-access.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,11 +20,23 @@ serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw new Error("Unauthorized");
-    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    if (!isAdmin) throw new Error("Forbidden");
-
-    const { voucherId, code } = await req.json();
+    
+    const { voucherId, code, tenantId } = await req.json();
     if (!voucherId) throw new Error("Voucher ID required");
+
+    let voucherQuery = supabase
+      .from("vouchers")
+      .select("tenant_id")
+      .eq("id", voucherId);
+
+    if (tenantId) {
+      voucherQuery = voucherQuery.eq("tenant_id", tenantId);
+    }
+
+    const { data: voucher, error: voucherError } = await voucherQuery.maybeSingle();
+    if (voucherError || !voucher) throw new Error("Voucher not found");
+
+    await assertTenantManager(supabase, user.id, voucher.tenant_id ?? tenantId);
 
     // Update voucher status
     await supabase.from("vouchers").update({ status: "revoked" }).eq("id", voucherId);

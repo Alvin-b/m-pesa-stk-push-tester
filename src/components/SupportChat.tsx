@@ -9,11 +9,13 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/support-chat
 
 async function streamChat({
   messages,
+  tenantId,
   onDelta,
   onDone,
   onError,
 }: {
   messages: Msg[];
+  tenantId?: string | null;
   onDelta: (t: string) => void;
   onDone: () => void;
   onError: (e: string) => void;
@@ -24,7 +26,7 @@ async function streamChat({
       "Content-Type": "application/json",
       Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, tenantId }),
   });
 
   if (!resp.ok) {
@@ -117,7 +119,7 @@ function renderMarkdown(text: string) {
   return <div className="space-y-0.5">{elements}</div>;
 }
 
-const SupportChat = () => {
+const SupportChat = ({ tenantId }: { tenantId?: string | null }) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -147,6 +149,7 @@ const SupportChat = () => {
 
     await streamChat({
       messages: allMsgs,
+      tenantId,
       onDelta: (chunk) => {
         assistantSoFar += chunk;
         setMessages((prev) => {
@@ -163,7 +166,7 @@ const SupportChat = () => {
         setLoading(false);
       },
     });
-  }, [loading, messages]);
+  }, [loading, messages, tenantId]);
 
   const send = useCallback(() => {
     sendMessage(input);

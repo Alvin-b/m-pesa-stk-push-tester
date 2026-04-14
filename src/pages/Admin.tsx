@@ -61,6 +61,19 @@ interface RouterSettingsRow {
   radius_acct_port: number | null;
 }
 
+interface PaymentGatewayRow {
+  id: string;
+  provider_id: string;
+  status: "disabled" | "test" | "active";
+  display_name: string | null;
+  config: {
+    secret_key?: string;
+  } | null;
+  public_config: {
+    public_key?: string;
+  } | null;
+}
+
 type DurationUnit = "hours" | "days" | "weeks" | "months";
 const DURATION_UNIT_MINUTES: Record<DurationUnit, number> = {
   hours: 60,
@@ -105,6 +118,14 @@ const Admin = () => {
     radius_acct_port: 1813
   });
   const [savingRouter, setSavingRouter] = useState(false);
+  const [paystackGateway, setPaystackGateway] = useState<PaymentGatewayRow | null>(null);
+  const [paystackForm, setPaystackForm] = useState({
+    display_name: "Paystack",
+    status: "disabled" as "disabled" | "test" | "active",
+    public_key: "",
+    secret_key: "",
+  });
+  const [savingGateway, setSavingGateway] = useState(false);
 
   const [genPkgId, setGenPkgId] = useState("");
   const [genPhone, setGenPhone] = useState("");
@@ -148,6 +169,14 @@ const Admin = () => {
       .from("router_settings")
       .select("*")
       .limit(1);
+    let gatewayQuery = hasScopedTenant && activeTenant?.id
+      ? supabase
+          .from("tenant_payment_gateways")
+          .select("id, provider_id, status, display_name, config, public_config")
+          .eq("tenant_id", activeTenant.id)
+          .eq("provider_id", "paystack")
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as { data: null; error: null });
 
     if (hasScopedTenant && activeTenant?.id) {
       vouchersQuery = vouchersQuery.eq("tenant_id", activeTenant.id);
@@ -156,11 +185,12 @@ const Admin = () => {
       routerSettingsQuery = routerSettingsQuery.eq("tenant_id", activeTenant.id);
     }
 
-    const [vRes, pRes, sRes, rRes] = await Promise.all([
+    const [vRes, pRes, sRes, rRes, gRes] = await Promise.all([
       vouchersQuery,
       packagesQuery,
       sessionsQuery,
       routerSettingsQuery.maybeSingle(),
+      gatewayQuery,
     ]);
     if (vRes.data) setVouchers(vRes.data as unknown as VoucherRow[]);
     if (pRes.data) setPackages(pRes.data as PackageRow[]);
@@ -176,6 +206,24 @@ const Admin = () => {
         radius_secret: rRes.data.radius_secret || "",
         radius_auth_port: rRes.data.radius_auth_port || 1812,
         radius_acct_port: rRes.data.radius_acct_port || 1813,
+      });
+    }
+    if (gRes.data) {
+      const gateway = gRes.data as unknown as PaymentGatewayRow;
+      setPaystackGateway(gateway);
+      setPaystackForm({
+        display_name: gateway.display_name || "Paystack",
+        status: gateway.status,
+        public_key: gateway.public_config?.public_key || "",
+        secret_key: gateway.config?.secret_key || "",
+      });
+    } else {
+      setPaystackGateway(null);
+      setPaystackForm({
+        display_name: "Paystack",
+        status: "disabled",
+        public_key: "",
+        secret_key: "",
       });
     }
     setLoadingData(false);
@@ -295,6 +343,45 @@ const Admin = () => {
       }]);
     }
     setSavingRouter(false);
+    loadData();
+  };
+
+  const savePaystackGateway = async () => {
+    if (!hasScopedTenant || !activeTenant?.id) {
+      return;
+    }
+
+    setSavingGateway(true);
+
+    const payload = {
+      tenant_id: activeTenant.id,
+      provider_id: "paystack" as const,
+      display_name: paystackForm.display_name.trim() || "Paystack",
+      status: paystackForm.status,
+      config: {
+        secret_key: paystackForm.secret_key.trim(),
+      },
+      public_config: {
+        public_key: paystackForm.public_key.trim(),
+      },
+    };
+
+    let response;
+    if (paystackGateway?.id) {
+      response = await supabase
+        .from("tenant_payment_gateways")
+        .update(payload)
+        .eq("id", paystackGateway.id)
+        .eq("tenant_id", activeTenant.id);
+    } else {
+      response = await supabase.from("tenant_payment_gateways").insert(payload);
+    }
+
+    if (response.error) {
+      console.error(response.error);
+    }
+
+    setSavingGateway(false);
     loadData();
   };
 
@@ -989,6 +1076,72 @@ const Admin = () => {
                   </Button>
                 </CardContent>
               </Card>
+              {hasScopedTenant && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="font-mono text-sm flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-primary" /> Payment Gateway Setup
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Enable Paystack for this ISP so the tenant portal can offer both redirect checkout and M-Pesa.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Display Name</label>
+                        <Input
+                          value={paystackForm.display_name}
+                          onChange={(e) => setPaystackForm({ ...paystackForm, display_name: e.target.value })}
+                          className="font-mono bg-muted/50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Status</label>
+                        <Select
+                          value={paystackForm.status}
+                          onValueChange={(value: "disabled" | "test" | "active") => setPaystackForm({ ...paystackForm, status: value })}
+                        >
+                          <SelectTrigger className="font-mono bg-muted/50 text-sm">
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">Disabled</SelectItem>
+                            <SelectItem value="test">Test Mode</SelectItem>
+                            <SelectItem value="active">Active</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Paystack Public Key</label>
+                        <Input
+                          value={paystackForm.public_key}
+                          onChange={(e) => setPaystackForm({ ...paystackForm, public_key: e.target.value })}
+                          placeholder="pk_live_..."
+                          className="font-mono bg-muted/50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Paystack Secret Key</label>
+                        <Input
+                          type="password"
+                          value={paystackForm.secret_key}
+                          onChange={(e) => setPaystackForm({ ...paystackForm, secret_key: e.target.value })}
+                          placeholder="sk_live_..."
+                          className="font-mono bg-muted/50 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Webhook URL: {typeof window !== "undefined" ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paystack-webhook` : "/functions/v1/paystack-webhook"}
+                    </p>
+                    <Button onClick={savePaystackGateway} disabled={savingGateway} className="font-mono text-xs">
+                      {savingGateway ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                      Save Paystack Settings
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="font-mono text-sm">Captive Portal Files</CardTitle>

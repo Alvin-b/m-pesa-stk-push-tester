@@ -1,19 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { generateUniqueVoucherCode } from "../_shared/vouchers.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
-
-function generateVoucherCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  let code = '';
-  for (let i = 0; i < 5; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -21,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { phone, amount, packageId } = await req.json();
+    const { phone, amount, packageId, tenantId } = await req.json();
 
     if (!phone || !amount) {
       return new Response(JSON.stringify({ error: 'Phone and amount are required' }), {
@@ -124,19 +116,62 @@ serve(async (req) => {
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const sb = createClient(supabaseUrl, supabaseKey);
 
-      const { data: pkg } = await sb.from('packages').select('duration_minutes').eq('id', packageId).single();
+      let packageQuery = sb
+        .from('packages')
+        .select('duration_minutes, tenant_id')
+        .eq('id', packageId);
+
+      if (tenantId) {
+        packageQuery = packageQuery.eq('tenant_id', tenantId);
+      }
+
+      const { data: pkg, error: pkgError } = await packageQuery.single();
+      if (pkgError || !pkg) {
+        throw new Error('Package not found for this ISP portal');
+      }
+
       const sessionTimeout = pkg?.duration_minutes ? pkg.duration_minutes * 60 : 3600;
+      const code = await generateUniqueVoucherCode(sb);
+      const internalReference = crypto.randomUUID();
 
-      const code = generateVoucherCode();
-
-      await sb.from('vouchers').insert({
+      const { data: voucher, error: voucherError } = await sb.from('vouchers').insert({
         code,
         package_id: packageId,
         phone_number: formattedPhone,
         checkout_request_id: stkData.CheckoutRequestID,
         status: 'pending',
         session_timeout: sessionTimeout,
-      });
+        tenant_id: tenantId || pkg.tenant_id || null,
+      }).select('id, tenant_id').single();
+
+      if (voucherError) {
+        throw voucherError;
+      }
+
+      const transactionTenantId = tenantId || pkg.tenant_id || voucher?.tenant_id || null;
+      if (transactionTenantId) {
+        const { error: paymentError } = await sb.from('payment_transactions').insert({
+          tenant_id: transactionTenantId,
+          provider_id: 'mpesa',
+          package_id: packageId,
+          voucher_id: voucher?.id ?? null,
+          internal_reference: internalReference,
+          provider_checkout_id: stkData.CheckoutRequestID,
+          customer_phone: formattedPhone,
+          amount,
+          currency_code: 'KES',
+          status: 'processing',
+          metadata: {
+            gateway: 'mpesa-stk-push',
+            checkout_request_id: stkData.CheckoutRequestID,
+            phone: formattedPhone,
+          },
+        });
+
+        if (paymentError) {
+          throw paymentError;
+        }
+      }
 
       // Do NOT create radcheck/radreply here.
       // They are created in confirm-payment after payment is verified.

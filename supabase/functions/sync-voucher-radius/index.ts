@@ -17,7 +17,7 @@ serve(async (req) => {
   }
 
   try {
-    const { code, mpesaReceipt } = await req.json();
+    const { code, mpesaReceipt, tenantId } = await req.json();
     if (!code && !mpesaReceipt) {
       return new Response(JSON.stringify({ error: "code or mpesaReceipt is required" }), {
         status: 400,
@@ -33,6 +33,10 @@ serve(async (req) => {
       .from("vouchers")
       .select("id, code, status, expires_at, session_timeout, mpesa_receipt, packages(duration_minutes, speed_limit)")
       .eq("status", "active");
+
+    if (tenantId) {
+      voucherQuery = voucherQuery.eq("tenant_id", tenantId);
+    }
 
     if (code) {
       voucherQuery = voucherQuery.eq("code", String(code).trim().toUpperCase());

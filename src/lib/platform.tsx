@@ -52,7 +52,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
 
     try {
       const membershipQuery = await supabase
-        .from("tenant_memberships" as never)
+        .from("tenant_memberships")
         .select("role, tenant:tenant_id(id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle)")
         .eq("user_id", user.id)
         .limit(1)
@@ -89,7 +89,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       }
 
       const legacyQuery = await supabase
-        .from("tenants" as never)
+        .from("tenants")
         .select("id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle")
         .eq("slug", "legacy-isp")
         .maybeSingle();

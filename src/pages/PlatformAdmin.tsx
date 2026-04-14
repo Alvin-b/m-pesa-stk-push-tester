@@ -39,16 +39,16 @@ const PlatformAdmin = () => {
       try {
         const [tenantRes, routerJobRes, invoiceRes] = await Promise.all([
           supabase
-            .from("tenants" as never)
+            .from("tenants")
             .select("id, name, slug, billing_status, monthly_base_fee, per_purchase_fee")
             .order("created_at", { ascending: false }),
           supabase
-            .from("router_provisioning_jobs" as never)
+            .from("router_provisioning_jobs")
             .select("id, status")
             .order("created_at", { ascending: false })
             .limit(250),
           supabase
-            .from("billing_invoices" as never)
+            .from("billing_invoices")
             .select("id, total, status"),
         ]);
 

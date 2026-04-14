@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { invoices, routerNodes, tenantSummary, workspaceMetrics } from "@/data/platform-demo";
+import { tenantSummary, workspaceMetrics } from "@/data/platform-demo";
 import { useAuth } from "@/lib/auth";
 import { usePlatform } from "@/lib/platform";
 import { supabase } from "@/integrations/supabase/client";
@@ -52,13 +53,42 @@ interface WorkspaceStats {
   totalRouters: number;
 }
 
+interface WorkspaceCustomer {
+  code: string;
+  phoneNumber: string;
+  packageName: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
 const TenantWorkspace = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { activeTenant, loading: platformLoading } = usePlatform();
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
-  const [liveInvoices, setLiveInvoices] = useState(invoices);
-  const [liveRouters, setLiveRouters] = useState(routerNodes);
+  const [liveInvoices, setLiveInvoices] = useState<typeof tenantSummary extends never ? never[] : Array<{
+    id: string;
+    period: string;
+    amount: string;
+    usage: string;
+    status: "paid" | "due" | "overdue";
+    dueDate: string;
+  }>>([]);
+  const [liveRouters, setLiveRouters] = useState<Array<{
+    id: string;
+    name: string;
+    site: string;
+    status: "healthy" | "warning" | "offline";
+    clients: number;
+    revenueToday: string;
+    lastSync: string;
+  }>>([]);
+  const [recentCustomers, setRecentCustomers] = useState<WorkspaceCustomer[]>([]);
+  const [newStation, setNewStation] = useState({ name: "", siteName: "", host: "" });
+  const [savingStation, setSavingStation] = useState(false);
+  const [stationError, setStationError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -74,18 +104,18 @@ const TenantWorkspace = () => {
         const [voucherRes, routerRes, invoiceRes] = await Promise.all([
           supabase
             .from("vouchers")
-            .select("status, created_at, packages(price), tenant_id")
+            .select("code, phone_number, status, created_at, expires_at, packages(name, price), tenant_id")
             .eq("tenant_id", activeTenant.id)
             .order("created_at", { ascending: false })
             .limit(2000),
           supabase
-            .from("routers" as never)
+            .from("routers")
             .select("id, name, site_name, provisioning_status, last_seen_at, last_error")
             .eq("tenant_id", activeTenant.id)
             .order("created_at", { ascending: false })
             .limit(20),
           supabase
-            .from("billing_invoices" as never)
+            .from("billing_invoices")
             .select("id, invoice_number, billing_period_start, total, status, due_date, purchase_count")
             .eq("tenant_id", activeTenant.id)
             .order("created_at", { ascending: false })
@@ -93,11 +123,25 @@ const TenantWorkspace = () => {
         ]);
 
         const voucherRows = (voucherRes.data ?? []) as Array<{
+          code: string;
+          phone_number: string;
           status: string;
           created_at: string;
+          expires_at?: string | null;
           tenant_id?: string | null;
-          packages?: { price?: number | null } | null;
+          packages?: { name?: string | null; price?: number | null } | null;
         }>;
+
+        setRecentCustomers(
+          voucherRows.slice(0, 8).map((row) => ({
+            code: row.code,
+            phoneNumber: row.phone_number,
+            packageName: row.packages?.name || "Custom package",
+            status: row.status,
+            createdAt: row.created_at,
+            expiresAt: row.expires_at || null,
+          })),
+        );
 
         const totalRevenue = voucherRows
           .filter((row) => row.status !== "revoked")
@@ -140,6 +184,8 @@ const TenantWorkspace = () => {
                 : "Pending",
             })),
           );
+        } else {
+          setLiveInvoices([]);
         }
 
         if (routerRows.length) {
@@ -177,6 +223,8 @@ const TenantWorkspace = () => {
           return;
         }
 
+        setLiveRouters([]);
+
         setStats({
           grossSales: totalRevenue,
           purchases: voucherRows.length,
@@ -192,7 +240,7 @@ const TenantWorkspace = () => {
     };
 
     void loadWorkspace();
-  }, [activeTenant?.id]);
+  }, [activeTenant?.id, reloadKey]);
 
   const tenantView = activeTenant
     ? {
@@ -217,6 +265,49 @@ const TenantWorkspace = () => {
     ];
   }, [stats]);
 
+  const portalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
+  const portalUrl = typeof window !== "undefined" ? `${window.location.origin}${portalPath}` : portalPath;
+
+  const downloadLoginHtml = () => {
+    const html = `<!DOCTYPE html><html><head><title>${activeTenant?.name || "WiFi Portal"}</title><meta http-equiv="refresh" content="0;url=${portalUrl}"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><p>Redirecting to portal...</p><script>window.location.href=${JSON.stringify(portalUrl)};</script></body></html>`;
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeTenant?.slug || "tenant"}-login.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const addStation = async () => {
+    if (!activeTenant?.id || !newStation.name.trim()) {
+      return;
+    }
+
+    setSavingStation(true);
+    setStationError("");
+
+    const { error } = await supabase.from("routers").insert([
+      {
+        tenant_id: activeTenant.id,
+        name: newStation.name.trim(),
+        site_name: newStation.siteName.trim() || null,
+        host: newStation.host.trim() || null,
+        provisioning_status: "pending",
+      },
+    ]);
+
+    if (error) {
+      setStationError(error.message || "Unable to save station");
+      setSavingStation(false);
+      return;
+    }
+
+    setNewStation({ name: "", siteName: "", host: "" });
+    setSavingStation(false);
+    setReloadKey((value) => value + 1);
+  };
+
   if (authLoading || platformLoading) {
     return <div className="min-h-screen bg-[#08111f]" />;
   }
@@ -236,21 +327,25 @@ const TenantWorkspace = () => {
                 </Badge>
                 <div>
                   <h1 className="max-w-3xl font-mono text-3xl font-semibold tracking-tight text-white md:text-5xl">
-                    {tenantView.name} now has a SaaS-ready operations layer.
+                    {tenantView.name} command center for stations, customers, and billing.
                   </h1>
                   <p className="mt-3 max-w-2xl text-sm text-slate-300 md:text-base">
-                    We are keeping the current portal alive while opening the next surface for billing controls,
-                    router orchestration, invoice visibility, and tenant-scale management.
+                    Each ISP now has its own tenant portal, station fleet, and voucher space. Use this workspace to
+                    manage your MikroTik rollout, open your tenant admin tools, and hand off the captive-portal files.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <Button className="h-11 rounded-full bg-white text-slate-950 hover:bg-slate-100">
+                  <Button className="h-11 rounded-full bg-white text-slate-950 hover:bg-slate-100" onClick={() => navigate("/admin")}>
                     <Router className="mr-2 h-4 w-4" />
-                    Provision Router
+                    Open ISP Admin
                   </Button>
-                  <Button variant="outline" className="h-11 rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10">
+                  <Button variant="outline" className="h-11 rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={downloadLoginHtml}>
                     <ReceiptText className="mr-2 h-4 w-4" />
-                    View Billing
+                    Download login.html
+                  </Button>
+                  <Button variant="outline" className="h-11 rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => window.open(portalUrl, "_blank", "noopener,noreferrer")}>
+                    <Globe className="mr-2 h-4 w-4" />
+                    Open Portal
                   </Button>
                 </div>
               </div>
@@ -308,15 +403,54 @@ const TenantWorkspace = () => {
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="font-mono text-xl">Router Fleet</CardTitle>
-                  <p className="mt-1 text-sm text-slate-400">Remote-ready devices, live health, and revenue snapshots.</p>
+                  <p className="mt-1 text-sm text-slate-400">Register each MikroTik station under your ISP and monitor the fleet from one tenant.</p>
                 </div>
-                <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10">
+                <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate("/admin")}>
                   <Network className="mr-2 h-4 w-4" />
-                  Open Fleet
+                  Voucher Tools
                 </Button>
               </CardHeader>
               <CardContent className="space-y-4">
-                {liveRouters.map((router) => (
+                <div className="rounded-2xl border border-white/10 bg-[#0d1729] p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Add station</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <Input
+                      placeholder="Station name"
+                      value={newStation.name}
+                      onChange={(event) => setNewStation((current) => ({ ...current, name: event.target.value }))}
+                      className="border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                    />
+                    <Input
+                      placeholder="Site / town"
+                      value={newStation.siteName}
+                      onChange={(event) => setNewStation((current) => ({ ...current, siteName: event.target.value }))}
+                      className="border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                    />
+                    <Input
+                      placeholder="Router IP or DNS"
+                      value={newStation.host}
+                      onChange={(event) => setNewStation((current) => ({ ...current, host: event.target.value }))}
+                      className="border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                    />
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <Button onClick={addStation} disabled={savingStation || !newStation.name.trim()} className="bg-white text-slate-950 hover:bg-slate-100">
+                      {savingStation ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Router className="mr-2 h-4 w-4" />}
+                      Save Station
+                    </Button>
+                    {stationError && <p className="text-sm text-rose-200">{stationError}</p>}
+                  </div>
+                </div>
+
+                {liveRouters.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-8 text-center">
+                    <Router className="mx-auto h-8 w-8 text-slate-500" />
+                    <p className="mt-4 font-medium text-white">No stations added yet.</p>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Add your first MikroTik above, then upload the tenant `login.html` file so customers land on your own portal.
+                    </p>
+                  </div>
+                ) : liveRouters.map((router) => (
                   <div
                     key={router.id}
                     className="rounded-2xl border border-white/10 bg-[#0d1729] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"

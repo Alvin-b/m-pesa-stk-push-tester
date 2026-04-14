@@ -26,7 +26,7 @@ const BillingLockPreview = () => {
     const loadBalance = async () => {
       try {
         const { data } = await supabase
-          .from("billing_invoices" as never)
+          .from("billing_invoices")
           .select("total, status")
           .eq("tenant_id", activeTenant.id)
           .in("status", ["overdue", "due"]);

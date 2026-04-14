@@ -10,7 +10,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { messages } = await req.json();
+    const { messages, tenantId } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("AI not configured");
 
@@ -21,7 +21,7 @@ serve(async (req) => {
     const lastUserMsg = messages[messages.length - 1]?.content || "";
 
     // ── Extract identifiers from the latest message ──
-    const codeMatch = lastUserMsg.match(/\b([A-Z]{5})\b/);
+    const codeMatch = lastUserMsg.toUpperCase().match(/\b([A-Z0-9]{5,8})\b/);
     const receiptMatch = lastUserMsg.match(/\b([A-Z]{2}[A-Z0-9]{8,})\b/);
     const phoneMatch = lastUserMsg.match(/(?:0|\+?254)\d{9}/);
 
@@ -31,23 +31,34 @@ serve(async (req) => {
     // ── Look up voucher by code or receipt ──
     const lookupCode = codeMatch?.[1] || receiptMatch?.[1];
     if (lookupCode) {
-      const { data: v } = await supabase
+      let voucherLookup = supabase
         .from("vouchers")
         .select("*, packages(*)")
-        .or(`code.eq.${lookupCode},mpesa_receipt.eq.${lookupCode}`)
-        .maybeSingle();
+        .or(`code.eq.${lookupCode},mpesa_receipt.eq.${lookupCode}`);
+
+      if (tenantId) {
+        voucherLookup = voucherLookup.eq("tenant_id", tenantId);
+      }
+
+      const { data: v } = await voucherLookup.maybeSingle();
       foundVoucher = v;
     }
 
     // ── Look up by phone if no voucher yet ──
     if (!foundVoucher && phoneMatch) {
       const phone = phoneMatch[0].replace(/^0/, "254").replace(/^\+/, "");
-      const { data: vlist } = await supabase
+      let phoneLookup = supabase
         .from("vouchers")
         .select("*, packages(*)")
         .eq("phone_number", phone)
         .order("created_at", { ascending: false })
         .limit(1);
+
+      if (tenantId) {
+        phoneLookup = phoneLookup.eq("tenant_id", tenantId);
+      }
+
+      const { data: vlist } = await phoneLookup;
       foundVoucher = vlist?.[0] || null;
     }
 
@@ -78,11 +89,17 @@ serve(async (req) => {
     }
 
     // ── Packages list ──
-    const { data: packages } = await supabase
+    let packagesQuery = supabase
       .from("packages")
       .select("name,price,duration_minutes,speed_limit")
       .eq("is_active", true)
       .order("price");
+
+    if (tenantId) {
+      packagesQuery = packagesQuery.eq("tenant_id", tenantId);
+    }
+
+    const { data: packages } = await packagesQuery;
     if (packages?.length) {
       systemContext += `\nPACKAGES: ${packages.map(p => `${p.name} KES${p.price} ${p.duration_minutes}min ${p.speed_limit || ""}`).join(" | ")}`;
     }
