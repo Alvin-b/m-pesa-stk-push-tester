@@ -164,15 +164,14 @@ const PlatformAdmin = () => {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <Badge className="border-fuchsia-300/30 bg-fuchsia-400/10 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.25em] text-fuchsia-100">
-                {APP_BRAND} Control Room
+                {APP_BRAND} Super Admin Dashboard
               </Badge>
               <h1 className="mt-4 font-mono text-3xl font-semibold tracking-tight md:text-5xl">
-                {APP_BRAND} platform control room for every ISP, invoice, and router job.
+                Manage every ISP, invoice, and router job from the BROADCOM super admin dashboard.
               </h1>
               <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
-                This route is the hidden operator surface you asked for. It is separated from tenant-facing admin and
-                can evolve into the full command layer for onboarding, automated provisioning, and revenue oversight in
-                {APP_PLATFORM_NAME}.
+                This is the platform command center for onboarding ISPs, sending invoices, checking billing health,
+                and entering any tenant admin dashboard inside {APP_PLATFORM_NAME}.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -227,10 +226,18 @@ const PlatformAdmin = () => {
                       </div>
                       <p className="mt-1 text-sm text-slate-400">/{tenant.slug}</p>
                     </div>
-                    <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/portal/${tenant.slug}`)}>
-                      Open tenant
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/admin?tenant=${encodeURIComponent(tenant.slug)}`)}>
+                        Open ISP Admin
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/billing?tenant=${encodeURIComponent(tenant.slug)}`)}>
+                        Open Billing
+                      </Button>
+                      <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/portal/${tenant.slug}`)}>
+                        Open Portal
+                      </Button>
+                    </div>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <div className="rounded-xl bg-white/5 p-3">

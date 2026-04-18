@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth";
 import { APP_BRAND, APP_OPERATOR_CONSOLE, APP_PLATFORM_NAME } from "@/lib/brand";
+import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Wifi, LogIn, UserPlus } from "lucide-react";
 import networkBg from "@/assets/network-bg.png";
 
@@ -56,7 +57,21 @@ const AdminLogin = () => {
       if (signInError) {
         setError(signInError);
       } else {
-        navigate("/dashboard");
+        const { data: authUser } = await supabase.auth.getUser();
+        const userId = authUser.user?.id;
+
+        if (userId) {
+          const { data: adminRole } = await supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", userId)
+            .eq("role", "admin")
+            .maybeSingle();
+
+          navigate(adminRole ? "/super-admin" : "/admin");
+        } else {
+          navigate("/admin");
+        }
       }
     }
 
@@ -79,7 +94,7 @@ const AdminLogin = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold font-mono text-foreground tracking-wide uppercase">{APP_OPERATOR_CONSOLE}</h1>
-              <p className="text-sm text-muted-foreground">Create an ISP account or sign in to your {APP_PLATFORM_NAME} workspace.</p>
+              <p className="text-sm text-muted-foreground">Create an ISP account or sign in to the ISP dashboard or super admin dashboard in {APP_PLATFORM_NAME}.</p>
             </div>
           </div>
 
@@ -193,12 +208,9 @@ const AdminLogin = () => {
               {isSignUp ? "Create ISP Account" : "Sign In"}
             </Button>
           </form>
-
-          <div className="text-center">
-            <Button asChild variant="link" className="h-auto p-0 font-mono text-xs">
-              <Link to="/">Open the route launchpad</Link>
-            </Button>
-          </div>
+          <p className="text-center text-[11px] font-mono text-muted-foreground">
+            Customer portals stay tenant-specific at `/portal/your-isp-slug`.
+          </p>
         </CardContent>
       </Card>
     </div>

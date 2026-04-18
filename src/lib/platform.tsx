@@ -2,6 +2,7 @@ import { createContext, ReactNode, useContext, useEffect, useMemo, useState } fr
 import { APP_PORTAL_NAME } from "@/lib/brand";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { useLocation } from "react-router-dom";
 
 export interface PlatformTenant {
   id: string;
@@ -37,6 +38,7 @@ const LEGACY_TENANT: PlatformTenant = {
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
   const { user, isAdmin, loading: authLoading } = useAuth();
+  const location = useLocation();
   const [activeTenant, setActiveTenant] = useState<PlatformTenant | null>(null);
   const [tenantMembershipRole, setTenantMembershipRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +54,30 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     setLoading(true);
 
     try {
+      const requestedTenantSlug = isAdmin
+        ? new URLSearchParams(location.search).get("tenant")?.trim().toLowerCase() || null
+        : null;
+
+      const mapTenant = (tenant: {
+        id: string;
+        name: string;
+        slug: string;
+        billing_status: PlatformTenant["billingStatus"];
+        monthly_base_fee: number | null;
+        per_purchase_fee: number | null;
+        portal_title: string | null;
+        portal_subtitle: string | null;
+      }): PlatformTenant => ({
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        billingStatus: tenant.billing_status ?? "active",
+        monthlyBaseFee: tenant.monthly_base_fee ?? 0,
+        perPurchaseFee: tenant.per_purchase_fee ?? 0,
+        portalTitle: tenant.portal_title,
+        portalSubtitle: tenant.portal_subtitle,
+      });
+
       const membershipQuery = await supabase
         .from("tenant_memberships")
         .select("role, tenant:tenant_id(id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle)")
@@ -73,17 +99,36 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
         } | null;
       } | null;
 
+      if (requestedTenantSlug) {
+        const overrideQuery = await supabase
+          .from("tenants")
+          .select("id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle")
+          .eq("slug", requestedTenantSlug)
+          .maybeSingle();
+
+        const overrideTenant = overrideQuery.data as {
+          id: string;
+          name: string;
+          slug: string;
+          billing_status: PlatformTenant["billingStatus"];
+          monthly_base_fee: number | null;
+          per_purchase_fee: number | null;
+          portal_title: string | null;
+          portal_subtitle: string | null;
+        } | null;
+
+        if (overrideTenant) {
+          setActiveTenant(mapTenant(overrideTenant));
+          setTenantMembershipRole(
+            membership?.tenant?.slug === overrideTenant.slug ? membership.role ?? "platform_admin" : "platform_admin",
+          );
+          setLoading(false);
+          return;
+        }
+      }
+
       if (membership?.tenant) {
-        setActiveTenant({
-          id: membership.tenant.id,
-          name: membership.tenant.name,
-          slug: membership.tenant.slug,
-          billingStatus: membership.tenant.billing_status ?? "active",
-          monthlyBaseFee: membership.tenant.monthly_base_fee ?? 0,
-          perPurchaseFee: membership.tenant.per_purchase_fee ?? 0,
-          portalTitle: membership.tenant.portal_title,
-          portalSubtitle: membership.tenant.portal_subtitle,
-        });
+        setActiveTenant(mapTenant(membership.tenant));
         setTenantMembershipRole(membership.role ?? null);
         setLoading(false);
         return;
@@ -107,16 +152,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       } | null;
 
       if (legacyTenant) {
-        setActiveTenant({
-          id: legacyTenant.id,
-          name: legacyTenant.name,
-          slug: legacyTenant.slug,
-          billingStatus: legacyTenant.billing_status ?? "active",
-          monthlyBaseFee: legacyTenant.monthly_base_fee ?? 0,
-          perPurchaseFee: legacyTenant.per_purchase_fee ?? 0,
-          portalTitle: legacyTenant.portal_title,
-          portalSubtitle: legacyTenant.portal_subtitle,
-        });
+        setActiveTenant(mapTenant(legacyTenant));
         setTenantMembershipRole(isAdmin ? "owner" : null);
       } else {
         setActiveTenant(LEGACY_TENANT);
@@ -134,7 +170,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (authLoading) return;
     void loadPlatform();
-  }, [authLoading, user?.id, isAdmin]);
+  }, [authLoading, user?.id, isAdmin, location.search]);
 
   const value = useMemo(
     () => ({

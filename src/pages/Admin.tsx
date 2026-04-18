@@ -62,6 +62,16 @@ interface RouterSettingsRow {
   radius_acct_port: number | null;
 }
 
+interface TenantRouterRow {
+  id: string;
+  name: string;
+  site_name: string | null;
+  host: string | null;
+  provisioning_status: string | null;
+  last_seen_at: string | null;
+  last_error: string | null;
+}
+
 interface PaymentGatewayRow {
   id: string;
   provider_id: string;
@@ -101,6 +111,7 @@ const Admin = () => {
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [routers, setRouters] = useState<TenantRouterRow[]>([]);
   const [routerSettings, setRouterSettings] = useState<RouterSettingsRow | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [activeSection, setActiveSection] = useState<ActiveSection>("overview");
@@ -170,6 +181,13 @@ const Admin = () => {
       .from("router_settings")
       .select("*")
       .limit(1);
+    let routersQuery = hasScopedTenant && activeTenant?.id
+      ? supabase
+          .from("routers")
+          .select("id, name, site_name, host, provisioning_status, last_seen_at, last_error")
+          .eq("tenant_id", activeTenant.id)
+          .order("name")
+      : Promise.resolve({ data: [], error: null } as { data: TenantRouterRow[]; error: null });
     let gatewayQuery = hasScopedTenant && activeTenant?.id
       ? supabase
           .from("tenant_payment_gateways")
@@ -186,16 +204,18 @@ const Admin = () => {
       routerSettingsQuery = routerSettingsQuery.eq("tenant_id", activeTenant.id);
     }
 
-    const [vRes, pRes, sRes, rRes, gRes] = await Promise.all([
+    const [vRes, pRes, sRes, rRes, routerRes, gRes] = await Promise.all([
       vouchersQuery,
       packagesQuery,
       sessionsQuery,
       routerSettingsQuery.maybeSingle(),
+      routersQuery,
       gatewayQuery,
     ]);
     if (vRes.data) setVouchers(vRes.data as unknown as VoucherRow[]);
     if (pRes.data) setPackages(pRes.data as PackageRow[]);
     if (sRes.data) setSessions(sRes.data as unknown as SessionRow[]);
+    setRouters((routerRes.data as TenantRouterRow[] | null) ?? []);
     if (rRes.data) {
       setRouterSettings(rRes.data as RouterSettingsRow);
       setRouterForm({
@@ -267,6 +287,110 @@ const Admin = () => {
     });
     return Object.values(map).sort((a, b) => b.revenue - a.revenue);
   }, [vouchers]);
+
+  const tenantPortalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
+  const isSuperAdminTenantView = isAdmin && tenantMembershipRole === "platform_admin";
+
+  const routerNodes = useMemo(() => {
+    if (routers.length > 0) {
+      return routers.map((router) => {
+        const status =
+          router.provisioning_status === "active" || router.provisioning_status === "successful"
+            ? "online"
+            : router.provisioning_status === "failed"
+              ? "offline"
+              : "warning";
+
+        return {
+          id: router.id,
+          name: router.name,
+          subtitle: router.site_name || router.host || "Tenant router",
+          status,
+          statusLabel: status === "online" ? "Online" : status === "offline" ? "Offline" : "Pending",
+          uptimeLabel: router.last_seen_at
+            ? `Seen ${format(parseISO(router.last_seen_at), "MMM dd, HH:mm")}`
+            : router.last_error
+              ? "Needs attention"
+              : "Awaiting sync",
+        };
+      });
+    }
+
+    if (routerSettings) {
+      return [
+        {
+          id: routerSettings.id,
+          name: routerSettings.router_name || "Main Router",
+          subtitle: routerSettings.router_ip || routerSettings.dns_name || "Router endpoint pending",
+          status: "warning" as const,
+          statusLabel: "Configured",
+          uptimeLabel: "Awaiting first live sync",
+        },
+      ];
+    }
+
+    return [];
+  }, [routers, routerSettings]);
+
+  const routerSummary = useMemo(() => {
+    return routerNodes.reduce(
+      (acc, router) => {
+        if (router.status === "online") acc.online += 1;
+        if (router.status === "offline") acc.offline += 1;
+        if (router.status === "warning") acc.warning += 1;
+        return acc;
+      },
+      { online: 0, offline: 0, warning: 0 },
+    );
+  }, [routerNodes]);
+
+  const activeVoucherCount = vouchers.filter((voucher) => voucher.status === "active").length;
+  const expiredVoucherCount = vouchers.filter((voucher) => voucher.status === "expired" || voucher.status === "revoked").length;
+  const activePackagesCount = packages.filter((pkg) => pkg.is_active).length;
+  const dashboardCards = [
+    {
+      label: "Income Today",
+      value: `Ksh. ${revenueStats.todayRev.toLocaleString()}`,
+      sub: `${revenueStats.todayCount} purchases today`,
+      color: "bg-gradient-to-br from-blue-600 to-blue-500",
+      icon: <CreditCard className="h-6 w-6 text-white/70" />,
+    },
+    {
+      label: "Income This Month",
+      value: `Ksh. ${revenueStats.monthRev.toLocaleString()}`,
+      sub: `${revenueStats.monthCount} purchases this month`,
+      color: "bg-gradient-to-br from-emerald-600 to-emerald-500",
+      icon: <BarChart3 className="h-6 w-6 text-white/70" />,
+    },
+    {
+      label: "Active/Expired",
+      value: `${activeVoucherCount}/${expiredVoucherCount}`,
+      sub: "Voucher lifecycle",
+      color: "bg-gradient-to-br from-amber-500 to-orange-500",
+      icon: <Activity className="h-6 w-6 text-white/70" />,
+    },
+    {
+      label: "Total Users",
+      value: vouchers.length.toLocaleString(),
+      sub: "Tenant customers",
+      color: "bg-gradient-to-br from-red-500 to-rose-500",
+      icon: <Users className="h-6 w-6 text-white/70" />,
+    },
+    {
+      label: "Hotspot Online Users",
+      value: activeSessions.length.toLocaleString(),
+      sub: "Currently connected",
+      color: "bg-gradient-to-br from-cyan-600 to-sky-500",
+      icon: <Wifi className="h-6 w-6 text-white/70" />,
+    },
+    {
+      label: "Packages/Plans",
+      value: activePackagesCount.toLocaleString(),
+      sub: "Live plans",
+      color: "bg-gradient-to-br from-violet-600 to-fuchsia-500",
+      icon: <Package className="h-6 w-6 text-white/70" />,
+    },
+  ];
 
   const addPackage = async () => {
     setSavingPkg(true);
@@ -594,45 +718,185 @@ const Admin = () => {
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={loadData} className="font-mono text-xs">
-            <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {isSuperAdminTenantView && (
+              <span className="hidden rounded-full bg-primary/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] text-primary md:inline-flex">
+                Super Admin View
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.open(tenantPortalPath, "_blank", "noopener,noreferrer")}
+              className="font-mono text-xs"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5 mr-1" /> Portal
+            </Button>
+            {isAdmin && (
+              <Button variant="ghost" size="sm" onClick={() => navigate("/super-admin")} className="font-mono text-xs">
+                <Shield className="h-3.5 w-3.5 mr-1" /> Super Admin
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={loadData} className="font-mono text-xs">
+              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
+            </Button>
+          </div>
         </header>
 
         <div className="p-4 md:p-6 space-y-6">
           {/* OVERVIEW */}
           {activeSection === "overview" && (
             <>
-              {/* Stat Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: "TOTAL USERS", value: vouchers.length, icon: <Users className="h-5 w-5" />, sub: `+${revenueStats.todayCount} today`, color: "border-t-[hsl(200,80%,55%)]" },
-                  { label: "ACTIVE USERS", value: activeSessions.length, icon: <Wifi className="h-5 w-5" />, sub: `${activeSessions.length} sessions`, color: "border-t-primary" },
-                  { label: "TOTAL REVENUE", value: `KES ${revenueStats.total.toLocaleString()}`, icon: <DollarSign className="h-5 w-5" />, sub: `+${revenueStats.todayRev.toLocaleString()} today`, color: "border-t-[hsl(35,80%,55%)]" },
-                  { label: "SUCCESSFUL PAYMENTS", value: vouchers.filter(v => v.status !== "revoked").length, icon: <CreditCard className="h-5 w-5" />, sub: `${revenueStats.todayCount} today`, color: "border-t-[hsl(330,70%,55%)]" },
-                ].map((stat) => (
-                  <Card key={stat.label} className={`border-t-2 ${stat.color}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                          {stat.icon}
+              <Card className="overflow-hidden border-[#243252] bg-[#131c31] text-white">
+                <CardHeader className="border-b border-white/10 bg-[#21336b] pb-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <CardTitle className="font-mono text-2xl flex items-center gap-2">
+                        <Radio className="h-5 w-5 text-cyan-200" /> Router View
+                      </CardTitle>
+                      <CardDescription className="mt-1 text-slate-300">
+                        Per-ISP router visibility for {activeTenant?.name || "the selected tenant"}.
+                      </CardDescription>
+                    </div>
+                    <div className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm font-mono text-slate-100">
+                      {activeTenant?.name || "Tenant Scope"}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {routerNodes.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
+                      <Radio className="mx-auto h-8 w-8 text-slate-500" />
+                      <p className="mt-4 font-medium text-white">No routers registered for this ISP yet.</p>
+                      <p className="mt-2 text-sm text-slate-400">
+                        Add routers in setup so each ISP dashboard shows its own network instead of a shared system view.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {routerNodes.map((router) => (
+                        <div key={router.id} className="rounded-2xl border border-white/10 bg-[#19233a] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                          <p className="font-mono text-sm font-semibold uppercase tracking-wide text-cyan-200">{router.name}</p>
+                          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-mono text-slate-300">
+                            <span className={router.status === "online" ? "text-emerald-300" : router.status === "offline" ? "text-rose-300" : "text-amber-200"}>
+                              ● {router.statusLabel}
+                            </span>
+                            <span>• {router.subtitle}</span>
+                          </div>
+                          <p className="mt-3 text-xs text-slate-400">{router.uptimeLabel}</p>
                         </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {dashboardCards.map((card) => (
+                  <Card key={card.label} className={`border-0 text-white shadow-lg ${card.color}`}>
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.18em] text-white/80">{card.label}</p>
+                          <p className="mt-3 text-3xl font-semibold">{card.value}</p>
+                        </div>
+                        <div className="rounded-2xl bg-white/10 p-3">{card.icon}</div>
                       </div>
-                      <p className="text-2xl font-bold font-mono text-foreground">{stat.value}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mt-1">{stat.label}</p>
-                      <p className="text-[10px] text-primary font-mono mt-1">{stat.sub}</p>
+                      <p className="mt-4 text-sm text-white/85">{card.sub}</p>
                     </CardContent>
                   </Card>
                 ))}
               </div>
 
-              {/* Quick Actions */}
+              <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-4 text-white">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="font-mono text-sm font-semibold text-emerald-100">Portal + Payment Status</p>
+                    <p className="mt-1 text-xs text-emerald-50/80">
+                      Customers for this ISP should use {tenantPortalPath}. M-Pesa STK Push remains live, and Paystack is currently {paystackForm.status}.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      onClick={() => window.open(tenantPortalPath, "_blank", "noopener,noreferrer")}
+                    >
+                      <ArrowUpRight className="mr-2 h-4 w-4" />
+                      Open Portal
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      onClick={() => navigate("/billing" + (isSuperAdminTenantView && activeTenant?.slug ? `?tenant=${encodeURIComponent(activeTenant.slug)}` : ""))}
+                    >
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      View Invoices
+                    </Button>
+                    {isSuperAdminTenantView && (
+                      <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate("/super-admin")}>
+                        <Shield className="mr-2 h-4 w-4" />
+                        Back to Super Admin
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Card className="overflow-hidden border-[#243252] bg-[#131c31] text-white">
+                <CardHeader className="border-b border-white/10 bg-[#18284d] pb-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <CardTitle className="font-mono text-2xl flex items-center gap-2">
+                        <Activity className="h-5 w-5 text-emerald-200" /> Router Status
+                      </CardTitle>
+                      <CardDescription className="mt-1 text-slate-300">
+                        Super admin and tenant admins see the same ISP-specific router health here.
+                      </CardDescription>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs font-mono">
+                      <span className="rounded-full bg-emerald-400 px-3 py-1 text-emerald-950">{routerSummary.online} Online</span>
+                      <span className="rounded-full bg-amber-300 px-3 py-1 text-amber-950">{routerSummary.warning} Pending</span>
+                      <span className="rounded-full bg-rose-400 px-3 py-1 text-rose-950">{routerSummary.offline} Offline</span>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {routerNodes.length === 0 ? (
+                    <p className="text-sm text-slate-400">Router health will appear once this ISP adds routers.</p>
+                  ) : (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {routerNodes.map((router) => (
+                        <div key={`${router.id}-status`} className="rounded-2xl border border-white/10 bg-[#19233a] p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-mono text-base font-semibold text-white">{router.name}</p>
+                              <p className="mt-1 text-xs text-slate-400">{router.subtitle}</p>
+                            </div>
+                            <div className={`rounded-full px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] ${
+                              router.status === "online"
+                                ? "bg-emerald-400/15 text-emerald-200"
+                                : router.status === "offline"
+                                  ? "bg-rose-400/15 text-rose-200"
+                                  : "bg-amber-300/15 text-amber-100"
+                            }`}>
+                              {router.statusLabel}
+                            </div>
+                          </div>
+                          <p className="mt-4 text-sm text-slate-300">{router.uptimeLabel}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="font-mono text-sm">Quick Actions</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <Button onClick={() => setActiveSection("packages")} className="h-12 font-mono text-xs bg-primary hover:bg-primary/90">
                       <Plus className="h-4 w-4 mr-1.5" /> Add Plan
                     </Button>
@@ -640,62 +904,17 @@ const Admin = () => {
                       <Ticket className="h-4 w-4 mr-1.5" /> Generate Code
                     </Button>
                     <Button onClick={() => setActiveSection("analytics")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
-                      <BarChart3 className="h-4 w-4 mr-1.5" /> View Reports
+                      <BarChart3 className="h-4 w-4 mr-1.5" /> Reports
                     </Button>
                     <Button onClick={() => setActiveSection("setup")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
-                      <Settings className="h-4 w-4 mr-1.5" /> Configure
+                      <Settings className="h-4 w-4 mr-1.5" /> Router Setup
+                    </Button>
+                    <Button onClick={() => navigate("/billing" + (isSuperAdminTenantView && activeTenant?.slug ? `?tenant=${encodeURIComponent(activeTenant.slug)}` : ""))} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                      <CreditCard className="h-4 w-4 mr-1.5" /> Invoices
                     </Button>
                   </div>
                 </CardContent>
               </Card>
-
-              {/* Quick Stats Row */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Card className="bg-muted/30">
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Activity className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xl font-bold font-mono text-foreground">{activeSessions.length}</p>
-                      <p className="text-[10px] text-muted-foreground">Online Now</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-muted/30">
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Key className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xl font-bold font-mono text-foreground">{vouchers.filter(v => v.status === "active").length}</p>
-                      <p className="text-[10px] text-muted-foreground">Active Vouchers</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-muted/30">
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Package className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xl font-bold font-mono text-foreground">{packages.filter(p => p.is_active).length}</p>
-                      <p className="text-[10px] text-muted-foreground">Active Plans</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-muted/30">
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Wifi className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xl font-bold font-mono text-foreground">{sessions.length}</p>
-                      <p className="text-[10px] text-muted-foreground">Total Sessions</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
             </>
           )}
 
