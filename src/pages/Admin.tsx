@@ -169,7 +169,7 @@ const Admin = () => {
     }
 
     if (!authLoading && !platformLoading && user && !canAccessAdmin) {
-      navigate("/workspace", { replace: true });
+      navigate("/admin", { replace: true });
     }
   }, [authLoading, platformLoading, user, canAccessAdmin, navigate]);
 
@@ -187,47 +187,66 @@ const Admin = () => {
 
   const loadData = async () => {
     setLoadingData(true);
+    if (!hasScopedTenant) {
+      setVouchers([]);
+      setPackages([]);
+      setSessions([]);
+      setRouters([]);
+      setRouterSettings(null);
+      setPaystackGateway(null);
+      setMpesaGateway(null);
+      setPaystackForm({
+        display_name: "Paystack",
+        status: "disabled",
+        public_key: "",
+        secret_key: "",
+      });
+      setMpesaForm({
+        display_name: "M-Pesa",
+        status: "disabled",
+        consumer_key: "",
+        consumer_secret: "",
+        passkey: "",
+        shortcode: "",
+      });
+      setLoadingData(false);
+      return;
+    }
+
     let vouchersQuery = supabase
       .from("vouchers")
       .select("*, packages(name, duration_minutes, price)")
+      .eq("tenant_id", activeTenant.id)
       .order("created_at", { ascending: false })
       .limit(500);
 
     let packagesQuery = supabase
       .from("packages")
       .select("*")
+      .eq("tenant_id", activeTenant.id)
       .order("price");
 
     let sessionsQuery = supabase
       .from("sessions")
       .select("*, vouchers(code, phone_number, packages(name))")
+      .eq("tenant_id", activeTenant.id)
       .order("started_at", { ascending: false })
       .limit(200);
 
     let routerSettingsQuery = supabase
       .from("router_settings")
+      .eq("tenant_id", activeTenant.id)
       .select("*")
       .limit(1);
-    let routersQuery = hasScopedTenant && activeTenant?.id
-      ? supabase
-          .from("routers")
-          .select("id, name, site_name, host, provisioning_status, last_seen_at, last_error")
-          .eq("tenant_id", activeTenant.id)
-          .order("name")
-      : Promise.resolve({ data: [], error: null } as { data: TenantRouterRow[]; error: null });
-    let gatewayQuery = hasScopedTenant && activeTenant?.id
-      ? supabase
-          .from("tenant_payment_gateways")
-          .select("id, provider_id, status, display_name, config, public_config")
-          .eq("tenant_id", activeTenant.id)
-      : Promise.resolve({ data: [], error: null } as { data: PaymentGatewayRow[]; error: null });
-
-    if (hasScopedTenant && activeTenant?.id) {
-      vouchersQuery = vouchersQuery.eq("tenant_id", activeTenant.id);
-      packagesQuery = packagesQuery.eq("tenant_id", activeTenant.id);
-      sessionsQuery = sessionsQuery.eq("tenant_id", activeTenant.id);
-      routerSettingsQuery = routerSettingsQuery.eq("tenant_id", activeTenant.id);
-    }
+    let routersQuery = supabase
+      .from("routers")
+      .select("id, name, site_name, host, provisioning_status, last_seen_at, last_error")
+      .eq("tenant_id", activeTenant.id)
+      .order("name");
+    let gatewayQuery = supabase
+      .from("tenant_payment_gateways")
+      .select("id, provider_id, status, display_name, config, public_config")
+      .eq("tenant_id", activeTenant.id);
 
     const [vRes, pRes, sRes, rRes, routerRes, gRes] = await Promise.all([
       vouchersQuery,
