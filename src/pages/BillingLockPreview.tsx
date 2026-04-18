@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
 import { AlertTriangle, CreditCard, FileText, LockKeyhole } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -18,7 +19,7 @@ const BillingLockPreview = () => {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate("/admin/login");
+      navigate("/login");
     }
   }, [authLoading, user, navigate]);
 
@@ -79,7 +80,7 @@ const BillingLockPreview = () => {
               <LockKeyhole className="h-9 w-9 text-rose-200" />
             </div>
             <div className="text-center">
-              <p className="text-xs uppercase tracking-[0.3em] text-rose-200/80">Account Suspended</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-rose-200/80">{APP_BRAND} Billing Lock</p>
               <h1 className="mt-3 font-mono text-3xl font-semibold tracking-tight md:text-4xl">
                 {activeTenant?.name || "Your account"} is locked until overdue invoices are cleared.
               </h1>

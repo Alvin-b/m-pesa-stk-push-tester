@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { tenantSummary, workspaceMetrics } from "@/data/platform-demo";
 import { useAuth } from "@/lib/auth";
+import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -93,7 +94,7 @@ const TenantWorkspace = () => {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate("/admin/login");
+      navigate("/login");
     }
   }, [authLoading, user, navigate]);
 
@@ -324,15 +325,16 @@ const TenantWorkspace = () => {
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-4">
                 <Badge className="border-cyan-300/30 bg-cyan-400/10 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.25em] text-cyan-100">
-                  Tenant Command Center
+                  {APP_BRAND} Tenant Command Center
                 </Badge>
                 <div>
                   <h1 className="max-w-3xl font-mono text-3xl font-semibold tracking-tight text-white md:text-5xl">
                     {tenantView.name} command center for stations, customers, and billing.
                   </h1>
                   <p className="mt-3 max-w-2xl text-sm text-slate-300 md:text-base">
-                    Each ISP now has its own tenant portal, station fleet, and voucher space. Use this workspace to
-                    manage your MikroTik rollout, open your tenant admin tools, and hand off the captive-portal files.
+                    Each ISP now has its own tenant portal, station fleet, and voucher space inside {APP_BRAND}. Use
+                    this workspace to manage your MikroTik rollout, open your tenant admin tools, and hand off the
+                    captive-portal files.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">

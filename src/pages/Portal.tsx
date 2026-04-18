@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
+import { APP_BRAND, APP_PORTAL_NAME } from "@/lib/brand";
 import {
   Wifi, Loader2, CheckCircle2, XCircle, Zap, KeyRound,
   ArrowLeft, Check, Smartphone, Copy, RefreshCw, Clock
@@ -330,7 +331,7 @@ const Portal = () => {
   const [mikrotikDetected, setMikrotikDetected] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
-  const [tenantName, setTenantName] = useState("WiFi Access Portal");
+  const [tenantName, setTenantName] = useState(APP_PORTAL_NAME);
   const [tenantPortalId, setTenantPortalId] = useState<string | null>(null);
   const [paymentOptions, setPaymentOptions] = useState<PaymentOption[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<PaymentOption["providerId"]>("mpesa");
@@ -346,7 +347,7 @@ const Portal = () => {
 
     void (async () => {
       let resolvedTenantId: string | null = null;
-      let resolvedTenantName = "WiFi Access Portal";
+      let resolvedTenantName = APP_PORTAL_NAME;
 
       const { data: tenant } = await supabase
         .from("tenants")
@@ -357,7 +358,7 @@ const Portal = () => {
       const resolvedTenant = tenant as { id: string; name: string; portal_title?: string | null } | null;
       if (resolvedTenant) {
         resolvedTenantId = resolvedTenant.id;
-        resolvedTenantName = resolvedTenant.portal_title || resolvedTenant.name || "WiFi Access Portal";
+        resolvedTenantName = resolvedTenant.portal_title || resolvedTenant.name || APP_PORTAL_NAME;
       }
 
       setTenantPortalId(resolvedTenantId);
@@ -849,6 +850,7 @@ const Portal = () => {
 
       {/* Header */}
       <div className="relative z-10 text-center pt-10 pb-6 px-4">
+        <p className="mb-3 text-[11px] font-mono uppercase tracking-[0.35em] text-primary">{APP_BRAND}</p>
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent mb-4 shadow-xl shadow-primary/25">
           <Wifi className="h-8 w-8 text-white" />
         </div>
@@ -1218,7 +1220,7 @@ const Portal = () => {
       </div>
 
       <p className="relative z-10 text-center text-[10px] text-muted-foreground pb-4">
-          Powered by M-Pesa, Paystack, and your Mikrotik billing cloud
+          Powered by {APP_BRAND}, M-Pesa, Paystack, and your Mikrotik billing cloud
       </p>
       <div className="relative z-10">
       <SupportChat tenantId={tenantPortalId} />

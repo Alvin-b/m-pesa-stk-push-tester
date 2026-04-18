@@ -35,7 +35,7 @@ export interface TenantSnapshot {
 }
 
 export const tenantSummary: TenantSnapshot = {
-  name: "Legacy ISP",
+  name: "BROADCOM Demo ISP",
   slug: "legacy-isp",
   plan: "Usage Billing v1",
   billingStatus: "active",

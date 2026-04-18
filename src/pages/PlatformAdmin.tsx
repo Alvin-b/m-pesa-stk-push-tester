@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { superAdminMetrics, tenants } from "@/data/platform-demo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { APP_BRAND, APP_PLATFORM_NAME } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
 import {
   ArrowRight,
@@ -148,7 +149,7 @@ const PlatformAdmin = () => {
   };
 
   if (!authLoading && !platformLoading && (!user || !isAdmin)) {
-    return <Navigate to="/admin/login" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   if (authLoading || platformLoading) {
@@ -163,14 +164,15 @@ const PlatformAdmin = () => {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <Badge className="border-fuchsia-300/30 bg-fuchsia-400/10 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.25em] text-fuchsia-100">
-                Private Super Admin
+                {APP_BRAND} Control Room
               </Badge>
               <h1 className="mt-4 font-mono text-3xl font-semibold tracking-tight md:text-5xl">
-                Platform control room for every ISP, invoice, and router job.
+                {APP_BRAND} platform control room for every ISP, invoice, and router job.
               </h1>
               <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
                 This route is the hidden operator surface you asked for. It is separated from tenant-facing admin and
-                can evolve into the full command layer for onboarding, automated provisioning, and revenue oversight.
+                can evolve into the full command layer for onboarding, automated provisioning, and revenue oversight in
+                {APP_PLATFORM_NAME}.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">

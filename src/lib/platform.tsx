@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { APP_PORTAL_NAME } from "@/lib/brand";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 
@@ -25,13 +26,13 @@ const PlatformContext = createContext<PlatformContextType | undefined>(undefined
 
 const LEGACY_TENANT: PlatformTenant = {
   id: "legacy-fallback",
-  name: "Legacy ISP",
+  name: "BROADCOM Demo ISP",
   slug: "legacy-isp",
   billingStatus: "active",
   monthlyBaseFee: 0,
   perPurchaseFee: 0,
-  portalTitle: "WiFi Access Portal",
-  portalSubtitle: "Fast, reliable internet access",
+  portalTitle: APP_PORTAL_NAME,
+  portalSubtitle: "Powered by BROADCOM multi-ISP cloud",
 };
 
 export function PlatformProvider({ children }: { children: ReactNode }) {

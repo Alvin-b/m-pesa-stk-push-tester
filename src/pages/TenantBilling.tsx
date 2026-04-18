@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
 import {
   ArrowLeft,
@@ -72,7 +73,7 @@ const TenantBilling = () => {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate("/admin/login", { replace: true });
+      navigate("/login", { replace: true });
     }
   }, [authLoading, user, navigate]);
 
@@ -217,15 +218,15 @@ const TenantBilling = () => {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-4">
               <Badge className="border-cyan-300/30 bg-cyan-400/10 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.25em] text-cyan-100">
-                Billing Desk
+                {APP_BRAND} Billing Desk
               </Badge>
               <div>
                 <h1 className="font-mono text-3xl font-semibold tracking-tight md:text-5xl">
                   {activeTenant?.name || "Tenant"} billing, invoices, and recovery.
                 </h1>
                 <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
-                  This is the tenant-safe billing desk. It stays available during suspension so finance actions and
-                  invoice visibility never disappear behind the lock wall.
+                  This is the tenant-safe billing desk inside {APP_BRAND}. It stays available during suspension so
+                  finance actions and invoice visibility never disappear behind the lock wall.
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">
