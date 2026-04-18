@@ -137,6 +137,15 @@ const Admin = () => {
   });
   const [savingRouter, setSavingRouter] = useState(false);
   const [paystackGateway, setPaystackGateway] = useState<PaymentGatewayRow | null>(null);
+  const [mpesaGateway, setMpesaGateway] = useState<PaymentGatewayRow | null>(null);
+  const [mpesaForm, setMpesaForm] = useState({
+    display_name: "M-Pesa",
+    status: "disabled" as "disabled" | "test" | "active",
+    consumer_key: "",
+    consumer_secret: "",
+    passkey: "",
+    shortcode: "",
+  });
   const [paystackForm, setPaystackForm] = useState({
     display_name: "Paystack",
     status: "disabled" as "disabled" | "test" | "active",
@@ -211,9 +220,7 @@ const Admin = () => {
           .from("tenant_payment_gateways")
           .select("id, provider_id, status, display_name, config, public_config")
           .eq("tenant_id", activeTenant.id)
-          .eq("provider_id", "paystack")
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null } as { data: null; error: null });
+      : Promise.resolve({ data: [], error: null } as { data: PaymentGatewayRow[]; error: null });
 
     if (hasScopedTenant && activeTenant?.id) {
       vouchersQuery = vouchersQuery.eq("tenant_id", activeTenant.id);
@@ -247,8 +254,12 @@ const Admin = () => {
         radius_acct_port: rRes.data.radius_acct_port || 1813,
       });
     }
-    if (gRes.data) {
-      const gateway = gRes.data as unknown as PaymentGatewayRow;
+    const gatewayRows = (gRes.data as unknown as PaymentGatewayRow[] | null) ?? [];
+    const paystackGatewayRow = gatewayRows.find((gateway) => gateway.provider_id === "paystack") ?? null;
+    const mpesaGatewayRow = gatewayRows.find((gateway) => gateway.provider_id === "mpesa") ?? null;
+
+    if (paystackGatewayRow) {
+      const gateway = paystackGatewayRow;
       setPaystackGateway(gateway);
       setPaystackForm({
         display_name: gateway.display_name || "Paystack",
@@ -263,6 +274,28 @@ const Admin = () => {
         status: "disabled",
         public_key: "",
         secret_key: "",
+      });
+    }
+    if (mpesaGatewayRow) {
+      const gateway = mpesaGatewayRow;
+      setMpesaGateway(gateway);
+      setMpesaForm({
+        display_name: gateway.display_name || "M-Pesa",
+        status: gateway.status,
+        consumer_key: gateway.config?.consumer_key || "",
+        consumer_secret: gateway.config?.consumer_secret || "",
+        passkey: gateway.config?.passkey || "",
+        shortcode: gateway.config?.shortcode || "",
+      });
+    } else {
+      setMpesaGateway(null);
+      setMpesaForm({
+        display_name: "M-Pesa",
+        status: "disabled",
+        consumer_key: "",
+        consumer_secret: "",
+        passkey: "",
+        shortcode: "",
       });
     }
     setLoadingData(false);
@@ -525,6 +558,46 @@ const Admin = () => {
         .from("tenant_payment_gateways")
         .update(payload)
         .eq("id", paystackGateway.id)
+        .eq("tenant_id", activeTenant.id);
+    } else {
+      response = await supabase.from("tenant_payment_gateways").insert(payload);
+    }
+
+    if (response.error) {
+      console.error(response.error);
+    }
+
+    setSavingGateway(false);
+    loadData();
+  };
+
+  const saveMpesaGateway = async () => {
+    if (!hasScopedTenant || !activeTenant?.id) {
+      return;
+    }
+
+    setSavingGateway(true);
+
+    const payload = {
+      tenant_id: activeTenant.id,
+      provider_id: "mpesa" as const,
+      display_name: mpesaForm.display_name.trim() || "M-Pesa",
+      status: mpesaForm.status,
+      config: {
+        consumer_key: mpesaForm.consumer_key.trim(),
+        consumer_secret: mpesaForm.consumer_secret.trim(),
+        passkey: mpesaForm.passkey.trim(),
+        shortcode: mpesaForm.shortcode.trim(),
+      },
+      public_config: {},
+    };
+
+    let response;
+    if (mpesaGateway?.id) {
+      response = await supabase
+        .from("tenant_payment_gateways")
+        .update(payload)
+        .eq("id", mpesaGateway.id)
         .eq("tenant_id", activeTenant.id);
     } else {
       response = await supabase.from("tenant_payment_gateways").insert(payload);
@@ -1324,10 +1397,86 @@ const Admin = () => {
                       <CreditCard className="h-4 w-4 text-primary" /> Payment Gateway Setup
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      Enable Paystack for this ISP so the tenant portal can offer both redirect checkout and M-Pesa.
+                      Each ISP chooses which gateways to enable and enters its own credentials so payments go to the right account.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-6">
+                    <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+                      <div>
+                        <h3 className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider">M-Pesa Daraja</h3>
+                        <p className="mt-1 text-[10px] text-muted-foreground">Configure the tenant's own Daraja app credentials and till/shortcode.</p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Display Name</label>
+                          <Input
+                            value={mpesaForm.display_name}
+                            onChange={(e) => setMpesaForm({ ...mpesaForm, display_name: e.target.value })}
+                            className="font-mono bg-muted/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Status</label>
+                          <Select
+                            value={mpesaForm.status}
+                            onValueChange={(value: "disabled" | "test" | "active") => setMpesaForm({ ...mpesaForm, status: value })}
+                          >
+                            <SelectTrigger className="font-mono bg-muted/50 text-sm">
+                              <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="disabled">Disabled</SelectItem>
+                              <SelectItem value="test">Test Mode</SelectItem>
+                              <SelectItem value="active">Active</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Consumer Key</label>
+                          <Input
+                            value={mpesaForm.consumer_key}
+                            onChange={(e) => setMpesaForm({ ...mpesaForm, consumer_key: e.target.value })}
+                            className="font-mono bg-muted/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Consumer Secret</label>
+                          <Input
+                            type="password"
+                            value={mpesaForm.consumer_secret}
+                            onChange={(e) => setMpesaForm({ ...mpesaForm, consumer_secret: e.target.value })}
+                            className="font-mono bg-muted/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Passkey</label>
+                          <Input
+                            type="password"
+                            value={mpesaForm.passkey}
+                            onChange={(e) => setMpesaForm({ ...mpesaForm, passkey: e.target.value })}
+                            className="font-mono bg-muted/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Shortcode / Till</label>
+                          <Input
+                            value={mpesaForm.shortcode}
+                            onChange={(e) => setMpesaForm({ ...mpesaForm, shortcode: e.target.value })}
+                            className="font-mono bg-muted/50 text-sm"
+                          />
+                        </div>
+                      </div>
+                      <Button onClick={saveMpesaGateway} disabled={savingGateway} className="font-mono text-xs">
+                        {savingGateway ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        Save M-Pesa Settings
+                      </Button>
+                    </div>
+
+                    <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+                      <div>
+                        <h3 className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider">Paystack</h3>
+                        <p className="mt-1 text-[10px] text-muted-foreground">Configure the tenant's own Paystack keys for redirect checkout.</p>
+                      </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Display Name</label>
@@ -1380,6 +1529,7 @@ const Admin = () => {
                       {savingGateway ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                       Save Paystack Settings
                     </Button>
+                    </div>
                   </CardContent>
                 </Card>
               )}

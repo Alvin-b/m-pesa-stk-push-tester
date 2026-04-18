@@ -22,7 +22,7 @@ serve(async (req) => {
   }
 
   try {
-    const { checkoutRequestId } = await req.json();
+    const { checkoutRequestId, tenantId } = await req.json();
 
     if (!checkoutRequestId) {
       return new Response(JSON.stringify({ error: 'CheckoutRequestID is required' }), {
@@ -31,14 +31,37 @@ serve(async (req) => {
       });
     }
 
-    const consumerKey = Deno.env.get('MPESA_CONSUMER_KEY');
-    const consumerSecret = Deno.env.get('MPESA_CONSUMER_SECRET');
-    const passkey = Deno.env.get('MPESA_PASSKEY');
-    const shortcode = Deno.env.get('MPESA_SHORTCODE');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    if (!tenantId) {
+      return new Response(JSON.stringify({ error: 'Tenant payment configuration is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data: gateway } = await supabase
+      .from('tenant_payment_gateways')
+      .select('config, status')
+      .eq('tenant_id', tenantId)
+      .eq('provider_id', 'mpesa')
+      .in('status', ['test', 'active'])
+      .maybeSingle();
+
+    const gatewayConfig = gateway?.config && typeof gateway.config === 'object'
+      ? gateway.config as Record<string, unknown>
+      : {};
+
+    const consumerKey = typeof gatewayConfig.consumer_key === 'string' ? gatewayConfig.consumer_key.trim() : '';
+    const consumerSecret = typeof gatewayConfig.consumer_secret === 'string' ? gatewayConfig.consumer_secret.trim() : '';
+    const passkey = typeof gatewayConfig.passkey === 'string' ? gatewayConfig.passkey.trim() : '';
+    const shortcode = typeof gatewayConfig.shortcode === 'string' ? gatewayConfig.shortcode.trim() : '';
 
     if (!consumerKey || !consumerSecret || !passkey || !shortcode) {
-      return new Response(JSON.stringify({ error: 'M-Pesa credentials not configured' }), {
-        status: 500,
+      return new Response(JSON.stringify({ error: 'M-Pesa is not configured for this ISP' }), {
+        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

@@ -20,48 +20,63 @@ serve(async (req) => {
 
     const options: Array<Record<string, unknown>> = [];
 
-    const mpesaConfigured = !!(
-      Deno.env.get("MPESA_CONSUMER_KEY") &&
-      Deno.env.get("MPESA_CONSUMER_SECRET") &&
-      Deno.env.get("MPESA_PASSKEY") &&
-      Deno.env.get("MPESA_SHORTCODE")
-    );
-
-    if (mpesaConfigured) {
-      options.push({
-        providerId: "mpesa",
-        displayName: "M-Pesa",
-        flowType: "stk_push",
-        requiresPhone: true,
-        requiresEmail: false,
+    if (!tenantId) {
+      return new Response(JSON.stringify({ options }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    let paystackEnabled = !!Deno.env.get("PAYSTACK_SECRET_KEY");
-    let paystackDisplayName = "Paystack";
+    const { data: gateways } = await supabase
+      .from("tenant_payment_gateways")
+      .select("provider_id, display_name, status, config, public_config")
+      .eq("tenant_id", tenantId)
+      .in("status", ["test", "active"]);
 
-    if (tenantId) {
-      const { data: gateway } = await supabase
-        .from("tenant_payment_gateways")
-        .select("display_name, status, config, public_config")
-        .eq("tenant_id", tenantId)
-        .eq("provider_id", "paystack")
-        .in("status", ["test", "active"])
-        .maybeSingle();
+    for (const gateway of gateways ?? []) {
+      const gatewayConfig = gateway?.config && typeof gateway.config === "object"
+        ? gateway.config as Record<string, unknown>
+        : {};
 
-      const gatewayConfig = gateway?.config && typeof gateway.config === "object" ? gateway.config as Record<string, unknown> : {};
-      paystackEnabled = paystackEnabled || !!gatewayConfig.secret_key;
-      paystackDisplayName = gateway?.display_name || paystackDisplayName;
-    }
+      if (gateway.provider_id === "mpesa") {
+        const mpesaReady = !!(
+          typeof gatewayConfig.consumer_key === "string" &&
+          gatewayConfig.consumer_key.trim() &&
+          typeof gatewayConfig.consumer_secret === "string" &&
+          gatewayConfig.consumer_secret.trim() &&
+          typeof gatewayConfig.passkey === "string" &&
+          gatewayConfig.passkey.trim() &&
+          typeof gatewayConfig.shortcode === "string" &&
+          gatewayConfig.shortcode.trim()
+        );
 
-    if (paystackEnabled) {
-      options.push({
-        providerId: "paystack",
-        displayName: paystackDisplayName,
-        flowType: "redirect",
-        requiresPhone: true,
-        requiresEmail: true,
-      });
+        if (mpesaReady) {
+          options.push({
+            providerId: "mpesa",
+            displayName: gateway.display_name || "M-Pesa",
+            flowType: "stk_push",
+            requiresPhone: true,
+            requiresEmail: false,
+          });
+        }
+      }
+
+      if (gateway.provider_id === "paystack") {
+        const paystackReady = !!(
+          typeof gatewayConfig.secret_key === "string" &&
+          gatewayConfig.secret_key.trim()
+        );
+
+        if (paystackReady) {
+          options.push({
+            providerId: "paystack",
+            displayName: gateway.display_name || "Paystack",
+            flowType: "redirect",
+            requiresPhone: true,
+            requiresEmail: true,
+          });
+        }
+      }
     }
 
     return new Response(JSON.stringify({ options }), {

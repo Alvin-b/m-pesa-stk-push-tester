@@ -341,6 +341,7 @@ const Portal = () => {
   const [timeLeft, setTimeLeft] = useState("");
   const [tenantName, setTenantName] = useState(APP_PORTAL_NAME);
   const [tenantPortalId, setTenantPortalId] = useState<string | null>(null);
+  const [tenantResolved, setTenantResolved] = useState(false);
   const [paymentOptions, setPaymentOptions] = useState<PaymentOption[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<PaymentOption["providerId"]>("mpesa");
 
@@ -369,6 +370,22 @@ const Portal = () => {
         resolvedTenantName = resolvedTenant.portal_title || resolvedTenant.name || APP_PORTAL_NAME;
       }
 
+      if (!resolvedTenantId) {
+        setTenantResolved(false);
+        setTenantPortalId(null);
+        setTenantName(tenantSlug ? "Portal Not Found" : APP_PORTAL_NAME);
+        setPackages([]);
+        setPaymentOptions([]);
+        setError(
+          tenantSlug
+            ? "This ISP portal could not be found. Please use the exact portal link shared by the ISP."
+            : "Choose a valid ISP portal link to browse packages and pay."
+        );
+        setStep("packages");
+        return;
+      }
+
+      setTenantResolved(true);
       setTenantPortalId(resolvedTenantId);
       setTenantName(resolvedTenantName);
 
@@ -381,10 +398,12 @@ const Portal = () => {
         setSelectedProvider(resolvedPaymentOptions[0].providerId);
       }
 
-      let packagesQuery = supabase.from("packages").select("*").eq("is_active", true).order("price");
-      if (resolvedTenantId) {
-        packagesQuery = packagesQuery.eq("tenant_id", resolvedTenantId);
-      }
+      let packagesQuery = supabase
+        .from("packages")
+        .select("*")
+        .eq("is_active", true)
+        .eq("tenant_id", resolvedTenantId)
+        .order("price");
 
       const { data } = await packagesQuery;
       setPackages((data as Package[]) || []);
@@ -702,7 +721,7 @@ const Portal = () => {
         setPollCount(attempts);
 
         const { data: queryData } = await supabase.functions.invoke("daraja-stk-query", {
-          body: { checkoutRequestId },
+          body: { checkoutRequestId, tenantId: tenantPortalId },
         });
 
         const resultCode = queryData?.resultCode;
@@ -959,6 +978,14 @@ const Portal = () => {
                 </Card>
               ))}
             </div>
+            {tenantResolved && packages.length === 0 && (
+              <Card className="border-border bg-card/95 backdrop-blur-md">
+                <CardContent className="p-5 text-center">
+                  <p className="text-sm font-semibold text-foreground">No packages published yet for this ISP.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">The ISP admin needs to add packages before customers can buy access.</p>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
 
@@ -995,6 +1022,9 @@ const Portal = () => {
                       </Button>
                     ))}
                   </div>
+                  {paymentOptions.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No payment gateways are configured for this ISP yet.</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -1047,7 +1077,7 @@ const Portal = () => {
                   </Button>
                   <Button
                     onClick={handlePayment}
-                    disabled={loading || !phone.trim() || (selectedProvider === "paystack" && !email.trim())}
+                    disabled={paymentOptions.length === 0 || loading || !phone.trim() || (selectedProvider === "paystack" && !email.trim())}
                     className="flex-1 font-semibold h-12 text-base bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg shadow-primary/20"
                   >
                     {loading ? (

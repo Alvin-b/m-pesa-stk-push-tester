@@ -22,14 +22,39 @@ serve(async (req) => {
       });
     }
 
-    const consumerKey = Deno.env.get('MPESA_CONSUMER_KEY');
-    const consumerSecret = Deno.env.get('MPESA_CONSUMER_SECRET');
-    const passkey = Deno.env.get('MPESA_PASSKEY');
-    const shortcode = Deno.env.get('MPESA_SHORTCODE');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const sb = createClient(supabaseUrl, supabaseKey);
+
+    if (!tenantId) {
+      return new Response(JSON.stringify({ error: 'Tenant payment configuration is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { data: gateway } = await sb
+      .from('tenant_payment_gateways')
+      .select('id, config, status')
+      .eq('tenant_id', tenantId)
+      .eq('provider_id', 'mpesa')
+      .in('status', ['test', 'active'])
+      .maybeSingle();
+
+    const gatewayConfig = gateway?.config && typeof gateway.config === 'object'
+      ? gateway.config as Record<string, unknown>
+      : {};
+
+    const consumerKey = typeof gatewayConfig.consumer_key === 'string' ? gatewayConfig.consumer_key.trim() : '';
+    const consumerSecret = typeof gatewayConfig.consumer_secret === 'string' ? gatewayConfig.consumer_secret.trim() : '';
+    const passkey = typeof gatewayConfig.passkey === 'string' ? gatewayConfig.passkey.trim() : '';
+    const shortcode = typeof gatewayConfig.shortcode === 'string' ? gatewayConfig.shortcode.trim() : '';
+    const partyB = typeof gatewayConfig.shortcode === 'string' ? gatewayConfig.shortcode.trim() : '';
+    const callbackUrl = `${supabaseUrl}/functions/v1/confirm-payment`;
 
     if (!consumerKey || !consumerSecret || !passkey || !shortcode) {
-      return new Response(JSON.stringify({ error: 'M-Pesa credentials not configured' }), {
-        status: 500,
+      return new Response(JSON.stringify({ error: 'M-Pesa is not configured for this ISP' }), {
+        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -82,9 +107,9 @@ serve(async (req) => {
       TransactionType: 'CustomerBuyGoodsOnline',
       Amount: amount,
       PartyA: formattedPhone,
-      PartyB: '4159923',
+      PartyB: partyB,
       PhoneNumber: formattedPhone,
-      CallBackURL: 'https://example.com/callback',
+      CallBackURL: callbackUrl,
       AccountReference: 'WiFi',
       TransactionDesc: 'WiFi Package Purchase',
     };
@@ -112,10 +137,6 @@ serve(async (req) => {
 
     // Create voucher as PENDING — activated by confirm-payment after polling succeeds
     if (packageId) {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const sb = createClient(supabaseUrl, supabaseKey);
-
       let packageQuery = sb
         .from('packages')
         .select('duration_minutes, tenant_id')
@@ -152,6 +173,7 @@ serve(async (req) => {
       if (transactionTenantId) {
         const { error: paymentError } = await sb.from('payment_transactions').insert({
           tenant_id: transactionTenantId,
+          gateway_id: gateway?.id ?? null,
           provider_id: 'mpesa',
           package_id: packageId,
           voucher_id: voucher?.id ?? null,
@@ -165,6 +187,7 @@ serve(async (req) => {
             gateway: 'mpesa-stk-push',
             checkout_request_id: stkData.CheckoutRequestID,
             phone: formattedPhone,
+            tenant_id: transactionTenantId,
           },
         });
 
