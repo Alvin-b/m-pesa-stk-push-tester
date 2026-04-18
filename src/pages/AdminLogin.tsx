@@ -68,9 +68,9 @@ const AdminLogin = () => {
             .eq("role", "admin")
             .maybeSingle();
 
-          navigate(adminRole ? "/super-admin" : "/admin");
+          navigate(adminRole ? "/super-admin" : "/workspace");
         } else {
-          navigate("/admin");
+          navigate("/workspace");
         }
       }
     }

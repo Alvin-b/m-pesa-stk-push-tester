@@ -16,11 +16,14 @@ const NotFound = () => {
         <h1 className="mt-4 text-4xl font-bold">404</h1>
         <p className="mt-3 text-xl text-muted-foreground">That route does not exist.</p>
         <p className="mt-4 text-sm text-muted-foreground">
-          Use the login, super admin, or tenant portal routes directly to move between ISP and platform views.
+          Use the home, workspace, super admin, or tenant portal routes directly to move between ISP and platform views.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-sm">
           <a href="/" className="text-primary underline hover:text-primary/90">
-            Open login
+            Open home
+          </a>
+          <a href="/workspace" className="text-primary underline hover:text-primary/90">
+            Open workspace
           </a>
           <a href="/super-admin" className="text-primary underline hover:text-primary/90">
             Open super admin

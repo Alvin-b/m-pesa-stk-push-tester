@@ -13,6 +13,7 @@ import {
   Building2,
   Cpu,
   CreditCard,
+  LayoutDashboard,
   Lock,
   Radar,
   Rocket,
@@ -227,6 +228,10 @@ const PlatformAdmin = () => {
                       <p className="mt-1 text-sm text-slate-400">/{tenant.slug}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/workspace?tenant=${encodeURIComponent(tenant.slug)}`)}>
+                        Open Workspace
+                        <LayoutDashboard className="ml-2 h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/admin?tenant=${encodeURIComponent(tenant.slug)}`)}>
                         Open ISP Admin
                         <ArrowRight className="ml-2 h-4 w-4" />

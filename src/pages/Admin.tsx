@@ -148,8 +148,14 @@ const Admin = () => {
   const canAccessAdmin = isAdmin || !!tenantMembershipRole;
 
   useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-    if (!authLoading && !platformLoading && user && !canAccessAdmin) navigate("/login");
+    if (!authLoading && !user) {
+      navigate("/login", { replace: true });
+      return;
+    }
+
+    if (!authLoading && !platformLoading && user && !canAccessAdmin) {
+      navigate("/workspace", { replace: true });
+    }
   }, [authLoading, platformLoading, user, canAccessAdmin, navigate]);
 
   useEffect(() => {

@@ -17,6 +17,26 @@ import { useAuth } from "@/lib/auth";
 
 const queryClient = new QueryClient();
 
+const HomeRoute = () => {
+  const { user, loading: authLoading, isAdmin } = useAuth();
+  const { activeTenant, loading: platformLoading } = usePlatform();
+
+  if (authLoading || platformLoading) return null;
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (isAdmin) {
+    return <Navigate to="/super-admin" replace />;
+  }
+
+  if (activeTenant?.billingStatus === "suspended") {
+    return <Navigate to="/workspace/billing-lock" replace />;
+  }
+
+  return <Navigate to="/workspace" replace />;
+};
+
 const TenantAppRoute = ({ allowBillingRecovery = false }: { allowBillingRecovery?: boolean }) => {
   const { user, loading: authLoading } = useAuth();
   const { activeTenant, loading: platformLoading, isPlatformAdmin } = usePlatform();
@@ -35,7 +55,7 @@ const TenantAppRoute = ({ allowBillingRecovery = false }: { allowBillingRecovery
 
 const AppRoutes = () => (
   <Routes>
-    <Route path="/" element={<Navigate to="/login" replace />} />
+    <Route path="/" element={<HomeRoute />} />
     <Route path="/portal" element={<Portal />} />
     <Route path="/portal/:tenantSlug" element={<Portal />} />
     <Route path="/admin/login" element={<AdminLogin />} />
@@ -46,7 +66,7 @@ const AppRoutes = () => (
       <Route path="/admin" element={<Admin />} />
       <Route path="/isp-admin" element={<Admin />} />
       <Route path="/workspace" element={<TenantWorkspace />} />
-      <Route path="/dashboard" element={<Admin />} />
+      <Route path="/dashboard" element={<TenantWorkspace />} />
     </Route>
 
     <Route element={<TenantAppRoute allowBillingRecovery />}>
