@@ -87,7 +87,7 @@ const PlatformAdmin = () => {
     return { active, watch, suspended };
   }, [tenantRows]);
 
-  const recentJobs = jobRows.length ? jobRows.slice(0, 5) : [{ id: "demo-job", status: "pending" }];
+  const recentJobs = jobRows.slice(0, 5);
   const successfulJobs = jobRows.filter((job) => job.status === "successful").length;
   const failedJobs = jobRows.filter((job) => job.status === "failed").length;
   const pendingJobs = jobRows.filter((job) => job.status === "pending").length;
@@ -531,16 +531,20 @@ const PlatformAdmin = () => {
                 </div>
                 <div className="rounded-2xl bg-[#0d1729] p-4">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Recent jobs</p>
-                  <div className="mt-3 space-y-2">
-                    {recentJobs.map((job) => (
-                      <div key={job.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-sm">
-                        <span className="font-mono text-slate-200">{job.id.slice(0, 8).toUpperCase()}</span>
-                        <Badge className={`border ${job.status === "successful" ? statusTone.active : job.status === "failed" ? statusTone.suspended : statusTone.watch}`}>
-                          {job.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
+                  {recentJobs.length === 0 ? (
+                    <p className="mt-3 text-sm text-slate-400">No router jobs have been created yet.</p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {recentJobs.map((job) => (
+                        <div key={job.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-sm">
+                          <span className="font-mono text-slate-200">{job.id.slice(0, 8).toUpperCase()}</span>
+                          <Badge className={`border ${job.status === "successful" ? statusTone.active : job.status === "failed" ? statusTone.suspended : statusTone.watch}`}>
+                            {job.status}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { tenantSummary, workspaceMetrics } from "@/data/platform-demo";
 import { useAuth } from "@/lib/auth";
 import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
@@ -70,7 +69,7 @@ const TenantWorkspace = () => {
   const { user, loading: authLoading } = useAuth();
   const { activeTenant, loading: platformLoading } = usePlatform();
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
-  const [liveInvoices, setLiveInvoices] = useState<typeof tenantSummary extends never ? never[] : Array<{
+  const [liveInvoices, setLiveInvoices] = useState<Array<{
     id: string;
     period: string;
     amount: string;
@@ -194,7 +193,7 @@ const TenantWorkspace = () => {
         if (routerRows.length) {
           const healthyRouters = routerRows.filter((router) => router.provisioning_status === "active" || router.provisioning_status === "successful").length;
           setLiveRouters(
-            routerRows.map((router, index) => ({
+            routerRows.map((router) => ({
               id: router.id.slice(0, 8).toUpperCase(),
               name: router.name,
               site: router.site_name || "Unassigned site",
@@ -204,8 +203,8 @@ const TenantWorkspace = () => {
                   : router.provisioning_status === "pending"
                     ? "warning"
                     : "healthy",
-              clients: Math.max(0, 18 - index * 3),
-              revenueToday: `KES ${(1800 + index * 920).toLocaleString()}`,
+              clients: 0,
+              revenueToday: "KES 0",
               lastSync: router.last_seen_at
                 ? `${Math.max(1, Math.round((Date.now() - new Date(router.last_seen_at).getTime()) / 60000))} min ago`
                 : router.last_error
@@ -238,7 +237,7 @@ const TenantWorkspace = () => {
           totalRouters: 0,
         });
       } catch (error) {
-        console.warn("Falling back to workspace demo data:", error);
+        console.warn("Workspace failed to load live data:", error);
       }
     };
 
@@ -251,15 +250,28 @@ const TenantWorkspace = () => {
         plan:
           activeTenant.monthlyBaseFee || activeTenant.perPurchaseFee
             ? `KES ${activeTenant.monthlyBaseFee.toLocaleString()} base + KES ${activeTenant.perPurchaseFee.toLocaleString()} / purchase`
-            : tenantSummary.plan,
-        monthlyVolume: stats ? `${stats.purchases.toLocaleString()} purchases` : tenantSummary.monthlyVolume,
-        mrr: stats ? `KES ${stats.paidRevenueThisMonth.toLocaleString()}` : tenantSummary.mrr,
-        routersOnline: stats ? `${stats.activeRouters} / ${stats.totalRouters} routers` : tenantSummary.routersOnline,
+            : "Usage-based billing",
+        monthlyVolume: `${stats?.purchases.toLocaleString() ?? "0"} purchases`,
+        mrr: `KES ${stats?.paidRevenueThisMonth.toLocaleString() ?? "0"}`,
+        routersOnline: `${stats?.activeRouters ?? 0} / ${stats?.totalRouters ?? 0} routers`,
       }
-    : tenantSummary;
+    : {
+        name: "ISP",
+        plan: "Usage-based billing",
+        monthlyVolume: "0 purchases",
+        mrr: "KES 0",
+        routersOnline: "0 / 0 routers",
+      };
 
   const metricCards = useMemo(() => {
-    if (!stats) return workspaceMetrics;
+    if (!stats) {
+      return [
+        { label: "Gross Sales", value: "KES 0", change: "Tenant-scoped voucher revenue", tone: "positive" as const },
+        { label: "Purchases", value: "0", change: "Successful + pending voucher volume", tone: "positive" as const },
+        { label: "Overdue Invoices", value: "0", change: "Billing lock triggers at 2 overdue invoices", tone: "neutral" as const },
+        { label: "Router Health", value: "0%", change: "Derived from live router provisioning status", tone: "neutral" as const },
+      ];
+    }
     return [
       { label: "Gross Sales", value: `KES ${stats.grossSales.toLocaleString()}`, change: "Tenant-scoped voucher revenue", tone: "positive" as const },
       { label: "Purchases", value: stats.purchases.toLocaleString(), change: "Successful + pending voucher volume", tone: "positive" as const },
@@ -272,9 +284,11 @@ const TenantWorkspace = () => {
   const portalUrl = typeof window !== "undefined" ? `${window.location.origin}${portalPath}` : portalPath;
 
   const downloadLoginHtml = () => {
+    const assetBaseUrl = `${window.location.origin}/captive`;
     const html = buildMikroTikShellHtml({
       portalUrl,
       title: `${activeTenant?.name || APP_BRAND} Captive Portal`,
+      assetBaseUrl,
     });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);

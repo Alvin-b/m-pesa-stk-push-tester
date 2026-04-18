@@ -701,9 +701,11 @@ const Admin = () => {
   const generateLoginHtml = () => {
     const portalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
     const portalUrl = window.location.origin + portalPath;
+    const assetBaseUrl = `${window.location.origin}/captive`;
     const html = buildMikroTikShellHtml({
       portalUrl,
       title: `${activeTenant?.name || APP_BRAND} Captive Portal`,
+      assetBaseUrl,
     });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
@@ -846,7 +848,7 @@ const Admin = () => {
                       <Radio className="h-5 w-5 text-white" /> Router View
                     </CardTitle>
                     <div className="w-full max-w-[340px] rounded-sm border border-white/15 bg-[#24375d] px-4 py-2 text-sm text-white/95">
-                      All Routers - System Wide
+                      {activeTenant?.name || "This ISP"} Router Summary
                     </div>
                   </div>
                 </CardHeader>
