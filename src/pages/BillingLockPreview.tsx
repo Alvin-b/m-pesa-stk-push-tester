@@ -13,6 +13,8 @@ const BillingLockPreview = () => {
   const { activeTenant, loading: platformLoading } = usePlatform();
   const [balance, setBalance] = useState("KES 48,920");
   const [overdueCount, setOverdueCount] = useState(2);
+  const [latestDueDate, setLatestDueDate] = useState("Pending");
+  const [latestInvoiceId, setLatestInvoiceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -27,17 +29,34 @@ const BillingLockPreview = () => {
       try {
         const { data } = await supabase
           .from("billing_invoices")
-          .select("total, status")
+          .select("id, invoice_number, total, status, due_date")
           .eq("tenant_id", activeTenant.id)
-          .in("status", ["overdue", "due"]);
+          .in("status", ["overdue", "due"])
+          .order("due_date", { ascending: true });
 
-        const rows = (data ?? []) as Array<{ total: number; status: string }>;
+        const rows = (data ?? []) as Array<{
+          id: string;
+          invoice_number: string;
+          total: number;
+          status: string;
+          due_date?: string | null;
+        }>;
         if (!rows.length) return;
 
         const overdue = rows.filter((row) => row.status === "overdue");
         const amount = rows.reduce((sum, row) => sum + (row.total ?? 0), 0);
         setOverdueCount(Math.max(1, overdue.length));
         setBalance(`KES ${amount.toLocaleString()}`);
+        setLatestInvoiceId(rows[0].id);
+        setLatestDueDate(
+          rows[0].due_date
+            ? new Date(rows[0].due_date).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+            : "Pending",
+        );
       } catch (error) {
         console.warn("Billing lock preview using fallback amounts:", error);
       }
@@ -84,23 +103,23 @@ const BillingLockPreview = () => {
               <div className="rounded-2xl bg-white/5 p-5">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Outstanding Balance</p>
                 <p className="mt-3 text-3xl font-semibold text-white">{balance}</p>
-                <p className="mt-2 text-sm text-slate-400">Covering March 2026 and April 2026 usage invoices.</p>
+                <p className="mt-2 text-sm text-slate-400">Next invoice action window closes on {latestDueDate}.</p>
               </div>
               <div className="rounded-2xl bg-white/5 p-5">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">What remains open</p>
                 <div className="mt-3 space-y-2 text-sm text-slate-300">
                   <p>Invoice history</p>
-                  <p>Payment checkout</p>
-                  <p>Billing contact updates</p>
+                  <p>Settlement summary</p>
+                  <p>Billing contact handoff</p>
                 </div>
               </div>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button className="h-12 flex-1 rounded-full bg-white text-slate-950 hover:bg-slate-100">
+              <Button className="h-12 flex-1 rounded-full bg-white text-slate-950 hover:bg-slate-100" onClick={() => navigate(latestInvoiceId ? `/workspace/billing?invoice=${encodeURIComponent(latestInvoiceId)}` : "/workspace/billing")}>
                 <CreditCard className="mr-2 h-4 w-4" />
-                Pay Now
+                Open Billing Desk
               </Button>
-              <Button variant="outline" className="h-12 flex-1 rounded-full border-white/15 bg-white/5 text-white hover:bg-white/10">
+              <Button variant="outline" className="h-12 flex-1 rounded-full border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate("/workspace/billing")}>
                 <FileText className="mr-2 h-4 w-4" />
                 View Invoices
               </Button>

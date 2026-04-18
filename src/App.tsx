@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ReactNode } from "react";
 import { AuthProvider } from "@/lib/auth";
 import { PlatformProvider, usePlatform } from "@/lib/platform";
 import Portal from "./pages/Portal";
@@ -12,18 +13,25 @@ import NotFound from "./pages/NotFound";
 import TenantWorkspace from "./pages/TenantWorkspace";
 import PlatformAdmin from "./pages/PlatformAdmin";
 import BillingLockPreview from "./pages/BillingLockPreview";
+import TenantBilling from "./pages/TenantBilling";
+import { useAuth } from "@/lib/auth";
 
 const queryClient = new QueryClient();
 
-const WorkspaceRoute = () => {
-  const { activeTenant, loading } = usePlatform();
+const TenantAppRoute = ({ allowBillingRecovery = false, children }: { allowBillingRecovery?: boolean; children: ReactNode }) => {
+  const { user, loading: authLoading } = useAuth();
+  const { activeTenant, loading: platformLoading, isPlatformAdmin } = usePlatform();
 
-  if (loading) return null;
-  if (activeTenant?.billingStatus === "suspended") {
+  if (authLoading || platformLoading) return null;
+  if (!user) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  if (!allowBillingRecovery && !isPlatformAdmin && activeTenant?.billingStatus === "suspended") {
     return <Navigate to="/workspace/billing-lock" replace />;
   }
 
-  return <TenantWorkspace />;
+  return children;
 };
 
 const App = () => (
@@ -39,9 +47,10 @@ const App = () => (
               <Route path="/portal" element={<Portal />} />
               <Route path="/portal/:tenantSlug" element={<Portal />} />
               <Route path="/admin/login" element={<AdminLogin />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="/workspace" element={<WorkspaceRoute />} />
-              <Route path="/workspace/billing-lock" element={<BillingLockPreview />} />
+              <Route path="/admin" element={<TenantAppRoute><Admin /></TenantAppRoute>} />
+              <Route path="/workspace" element={<TenantAppRoute><TenantWorkspace /></TenantAppRoute>} />
+              <Route path="/workspace/billing" element={<TenantAppRoute allowBillingRecovery><TenantBilling /></TenantAppRoute>} />
+              <Route path="/workspace/billing-lock" element={<TenantAppRoute allowBillingRecovery><BillingLockPreview /></TenantAppRoute>} />
               <Route path="/orchestra/control-room" element={<PlatformAdmin />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

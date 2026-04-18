@@ -14,6 +14,7 @@ import {
   CreditCard,
   FileSpreadsheet,
   Globe,
+  Loader2,
   Network,
   ReceiptText,
   Router,
@@ -339,6 +340,10 @@ const TenantWorkspace = () => {
                     <Router className="mr-2 h-4 w-4" />
                     Open ISP Admin
                   </Button>
+                  <Button variant="outline" className="h-11 rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate("/workspace/billing")}>
+                    <CreditCard className="mr-2 h-4 w-4" />
+                    Open Billing Desk
+                  </Button>
                   <Button variant="outline" className="h-11 rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={downloadLoginHtml}>
                     <ReceiptText className="mr-2 h-4 w-4" />
                     Download login.html
@@ -495,7 +500,7 @@ const TenantWorkspace = () => {
                   <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4">
                     <div className="flex items-center gap-2 text-amber-100">
                       <ShieldAlert className="h-4 w-4" />
-                      <p className="font-medium">Auto-suspension policy draft</p>
+                      <p className="font-medium">Auto-suspension policy</p>
                     </div>
                     <p className="mt-2 text-sm text-amber-50/80">
                       One overdue invoice triggers warnings. Two overdue invoices place the tenant in hard-lock mode
@@ -552,7 +557,11 @@ const TenantWorkspace = () => {
                           <p className="text-xl font-semibold text-white">{invoice.amount}</p>
                           <p className="text-sm text-slate-400">Due {invoice.dueDate}</p>
                         </div>
-                        <Button variant="ghost" className="text-white hover:bg-white/10">
+                        <Button
+                          variant="ghost"
+                          className="text-white hover:bg-white/10"
+                          onClick={() => navigate(`/workspace/billing?invoice=${encodeURIComponent(invoice.id)}`)}
+                        >
                           Open
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Button>
@@ -590,8 +599,8 @@ const TenantWorkspace = () => {
                 <Zap className="h-5 w-5 text-amber-200" />
                 <h3 className="mt-4 font-mono text-lg">Billing Enforcement</h3>
                 <p className="mt-2 text-sm text-slate-400">
-                  The future lock screen will be backend-enforced, not just a modal, so suspended tenants cannot bypass
-                  the invoice gate.
+                  Billing suspension is route-enforced now, so suspended tenants land in the billing desk until
+                  overdue invoices are resolved.
                 </p>
               </CardContent>
             </Card>
