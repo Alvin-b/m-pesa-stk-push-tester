@@ -2,8 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { ReactNode } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { PlatformProvider, usePlatform } from "@/lib/platform";
 import Portal from "./pages/Portal";
@@ -18,7 +17,7 @@ import { useAuth } from "@/lib/auth";
 
 const queryClient = new QueryClient();
 
-const TenantAppRoute = ({ allowBillingRecovery = false, children }: { allowBillingRecovery?: boolean; children: ReactNode }) => {
+const TenantAppRoute = ({ allowBillingRecovery = false }: { allowBillingRecovery?: boolean }) => {
   const { user, loading: authLoading } = useAuth();
   const { activeTenant, loading: platformLoading, isPlatformAdmin } = usePlatform();
 
@@ -31,8 +30,38 @@ const TenantAppRoute = ({ allowBillingRecovery = false, children }: { allowBilli
     return <Navigate to="/workspace/billing-lock" replace />;
   }
 
-  return children;
+  return <Outlet />;
 };
+
+const AppRoutes = () => (
+  <Routes>
+    <Route path="/" element={<Navigate to="/login" replace />} />
+    <Route path="/portal" element={<Portal />} />
+    <Route path="/portal/:tenantSlug" element={<Portal />} />
+    <Route path="/admin/login" element={<AdminLogin />} />
+    <Route path="/login" element={<AdminLogin />} />
+    <Route path="/signup" element={<AdminLogin />} />
+
+    <Route element={<TenantAppRoute />}>
+      <Route path="/admin" element={<Admin />} />
+      <Route path="/isp-admin" element={<Admin />} />
+      <Route path="/workspace" element={<TenantWorkspace />} />
+      <Route path="/dashboard" element={<Admin />} />
+    </Route>
+
+    <Route element={<TenantAppRoute allowBillingRecovery />}>
+      <Route path="/workspace/billing" element={<TenantBilling />} />
+      <Route path="/billing" element={<TenantBilling />} />
+      <Route path="/workspace/billing-lock" element={<BillingLockPreview />} />
+      <Route path="/billing-lock" element={<BillingLockPreview />} />
+    </Route>
+
+    <Route path="/orchestra/control-room" element={<PlatformAdmin />} />
+    <Route path="/super-admin" element={<PlatformAdmin />} />
+    <Route path="/control-room" element={<PlatformAdmin />} />
+    <Route path="*" element={<NotFound />} />
+  </Routes>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -42,26 +71,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <PlatformProvider>
-            <Routes>
-              <Route path="/" element={<Navigate to="/login" replace />} />
-              <Route path="/portal" element={<Portal />} />
-              <Route path="/portal/:tenantSlug" element={<Portal />} />
-              <Route path="/admin/login" element={<AdminLogin />} />
-              <Route path="/login" element={<AdminLogin />} />
-              <Route path="/signup" element={<AdminLogin />} />
-              <Route path="/admin" element={<TenantAppRoute><Admin /></TenantAppRoute>} />
-              <Route path="/isp-admin" element={<TenantAppRoute><Admin /></TenantAppRoute>} />
-              <Route path="/workspace" element={<TenantAppRoute><TenantWorkspace /></TenantAppRoute>} />
-              <Route path="/dashboard" element={<TenantAppRoute><Admin /></TenantAppRoute>} />
-              <Route path="/workspace/billing" element={<TenantAppRoute allowBillingRecovery><TenantBilling /></TenantAppRoute>} />
-              <Route path="/billing" element={<TenantAppRoute allowBillingRecovery><TenantBilling /></TenantAppRoute>} />
-              <Route path="/workspace/billing-lock" element={<TenantAppRoute allowBillingRecovery><BillingLockPreview /></TenantAppRoute>} />
-              <Route path="/billing-lock" element={<TenantAppRoute allowBillingRecovery><BillingLockPreview /></TenantAppRoute>} />
-              <Route path="/orchestra/control-room" element={<PlatformAdmin />} />
-              <Route path="/super-admin" element={<PlatformAdmin />} />
-              <Route path="/control-room" element={<PlatformAdmin />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <AppRoutes />
           </PlatformProvider>
         </AuthProvider>
       </BrowserRouter>

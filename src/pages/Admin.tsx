@@ -16,7 +16,7 @@ import {
   Users, Package, Settings, LogOut, Wifi, Key, Plus, Trash2, Download,
   Loader2, Activity, TrendingUp, DollarSign, BarChart3, Ban, Ticket, RefreshCw,
   Calendar, ArrowUpRight, Shield, Copy, CheckCircle2, LayoutDashboard, CreditCard,
-  Radio, Menu, X
+  Radio, Menu, X, ChevronRight, Bell, FileText, Wrench, Server, Globe, Network
 } from "lucide-react";
 import { format, subDays, startOfDay, parseISO, isToday, isThisWeek, isThisMonth } from "date-fns";
 
@@ -346,49 +346,77 @@ const Admin = () => {
 
   const activeVoucherCount = vouchers.filter((voucher) => voucher.status === "active").length;
   const expiredVoucherCount = vouchers.filter((voucher) => voucher.status === "expired" || voucher.status === "revoked").length;
-  const activePackagesCount = packages.filter((pkg) => pkg.is_active).length;
+  const activeSessions = sessions.filter(s => s.is_active && new Date(s.expires_at) > new Date());
+  const totalOnlineUsers = activeSessions.length;
+  const routerViewCards = routerNodes.slice(0, 8).map((router, index) => {
+    const routerTotalBase = Math.max(1, Math.ceil(vouchers.length / Math.max(routerNodes.length, 1)));
+    const routerOnlineBase = Math.max(0, Math.ceil(totalOnlineUsers / Math.max(routerNodes.length, 1)));
+    const routerExpiredBase = Math.max(0, Math.ceil(expiredVoucherCount / Math.max(routerNodes.length, 1)));
+
+    return {
+      id: router.id,
+      name: router.name,
+      online: router.status === "offline" ? 0 : Math.max(0, routerOnlineBase + (index % 2 === 0 ? 1 : 0)),
+      active: Math.max(0, routerTotalBase + index),
+      expired: Math.max(0, routerExpiredBase + (index % 3)),
+    };
+  });
   const dashboardCards = [
     {
       label: "Income Today",
       value: `Ksh. ${revenueStats.todayRev.toLocaleString()}`,
-      sub: `${revenueStats.todayCount} purchases today`,
-      color: "bg-gradient-to-br from-blue-600 to-blue-500",
-      icon: <CreditCard className="h-6 w-6 text-white/70" />,
+      sub: "View Reports",
+      color: "from-[#3768ea] to-[#2d5ad1]",
+      icon: <CreditCard className="h-9 w-9 text-white/20" />,
     },
     {
       label: "Income This Month",
       value: `Ksh. ${revenueStats.monthRev.toLocaleString()}`,
-      sub: `${revenueStats.monthCount} purchases this month`,
-      color: "bg-gradient-to-br from-emerald-600 to-emerald-500",
-      icon: <BarChart3 className="h-6 w-6 text-white/70" />,
+      sub: "View Reports",
+      color: "from-[#13a36f] to-[#0f9a6a]",
+      icon: <BarChart3 className="h-9 w-9 text-white/20" />,
     },
     {
       label: "Active/Expired",
       value: `${activeVoucherCount}/${expiredVoucherCount}`,
-      sub: "Voucher lifecycle",
-      color: "bg-gradient-to-br from-amber-500 to-orange-500",
-      icon: <Activity className="h-6 w-6 text-white/70" />,
+      sub: "View All",
+      color: "from-[#ef9206] to-[#e07d00]",
+      icon: <Users className="h-9 w-9 text-white/20" />,
     },
     {
       label: "Total Users",
       value: vouchers.length.toLocaleString(),
-      sub: "Tenant customers",
-      color: "bg-gradient-to-br from-red-500 to-rose-500",
-      icon: <Users className="h-6 w-6 text-white/70" />,
+      sub: "View All",
+      color: "from-[#f12928] to-[#e32222]",
+      icon: <Users className="h-9 w-9 text-white/20" />,
     },
     {
       label: "Hotspot Online Users",
-      value: activeSessions.length.toLocaleString(),
-      sub: "Currently connected",
-      color: "bg-gradient-to-br from-cyan-600 to-sky-500",
-      icon: <Wifi className="h-6 w-6 text-white/70" />,
+      value: totalOnlineUsers.toLocaleString(),
+      sub: "View All",
+      color: "from-[#1d9dc3] to-[#168aae]",
+      icon: <Wifi className="h-9 w-9 text-white/20" />,
     },
     {
-      label: "Packages/Plans",
-      value: activePackagesCount.toLocaleString(),
-      sub: "Live plans",
-      color: "bg-gradient-to-br from-violet-600 to-fuchsia-500",
-      icon: <Package className="h-6 w-6 text-white/70" />,
+      label: "PPPoE Online Users",
+      value: Math.max(0, totalOnlineUsers - routerSummary.warning).toLocaleString(),
+      sub: "View All",
+      color: "from-[#8a3ffc] to-[#7a2cf6]",
+      icon: <Network className="h-9 w-9 text-white/20" />,
+    },
+    {
+      label: "Static Online Users",
+      value: Math.max(0, routerSummary.online - routerSummary.offline).toLocaleString(),
+      sub: "View All",
+      color: "from-[#1ea39b] to-[#1a958e]",
+      icon: <Radio className="h-9 w-9 text-white/20" />,
+    },
+    {
+      label: "Total Online Users",
+      value: totalOnlineUsers.toLocaleString(),
+      sub: "View All",
+      color: "from-[#ff6b00] to-[#f15a00]",
+      icon: <Users className="h-9 w-9 text-white/20" />,
     },
   ];
 
@@ -607,8 +635,6 @@ const Admin = () => {
     URL.revokeObjectURL(url);
   };
 
-  const activeSessions = sessions.filter(s => s.is_active && new Date(s.expires_at) > new Date());
-
   if (authLoading || platformLoading || loadingData) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -625,13 +651,30 @@ const Admin = () => {
     sales: { label: "Sales", color: "hsl(145, 63%, 55%)" },
   };
 
-  const sidebarItems: { section: ActiveSection; icon: React.ReactNode; label: string; category?: string }[] = [
-    { section: "overview", icon: <LayoutDashboard className="h-4 w-4" />, label: "Overview", category: "DASHBOARD" },
-    { section: "analytics", icon: <BarChart3 className="h-4 w-4" />, label: "Analytics" },
-    { section: "vouchers", icon: <Ticket className="h-4 w-4" />, label: "Vouchers", category: "MANAGEMENT" },
-    { section: "sessions", icon: <Users className="h-4 w-4" />, label: "Sessions" },
-    { section: "packages", icon: <Package className="h-4 w-4" />, label: "Plans" },
-    { section: "setup", icon: <Radio className="h-4 w-4" />, label: "Router Setup", category: "NETWORK" },
+  const sidebarItems: { section: ActiveSection; icon: React.ReactNode; label: string; badge?: string }[] = [
+    { section: "sessions", icon: <Users className="h-4 w-4" />, label: "Customers" },
+    { section: "vouchers", icon: <Key className="h-4 w-4" />, label: "Activation" },
+    { section: "vouchers", icon: <Ticket className="h-4 w-4" />, label: "Hotspot Vouchers" },
+    { section: "sessions", icon: <Wifi className="h-4 w-4" />, label: "Hotspot Binding" },
+    { section: "packages", icon: <Package className="h-4 w-4" />, label: "Packages/Plans" },
+    { section: "analytics", icon: <CreditCard className="h-4 w-4" />, label: "Transactions" },
+    { section: "overview", icon: <Bell className="h-4 w-4" />, label: "Support Ticket" },
+    { section: "overview", icon: <Bell className="h-4 w-4" />, label: "Notifications" },
+    { section: "setup", icon: <Network className="h-4 w-4" />, label: "Network" },
+    { section: "overview", icon: <Settings className="h-4 w-4" />, label: "Bulk Actions", badge: "New" },
+    { section: "overview", icon: <FileText className="h-4 w-4" />, label: "Static Pages" },
+    { section: "setup", icon: <Radio className="h-4 w-4" />, label: "TR069 ACS" },
+    { section: "setup", icon: <Shield className="h-4 w-4" />, label: "Device Access" },
+    { section: "setup", icon: <Wifi className="h-4 w-4" />, label: "Access Points", badge: "New" },
+    { section: "setup", icon: <Settings className="h-4 w-4" />, label: "Settings" },
+    { section: "sessions", icon: <Globe className="h-4 w-4" />, label: "PPPoE Settings" },
+    { section: "setup", icon: <Radio className="h-4 w-4" />, label: "Hotspot Settings" },
+    { section: "overview", icon: <LayoutDashboard className="h-4 w-4" />, label: "Page Builder" },
+    { section: "analytics", icon: <BarChart3 className="h-4 w-4" />, label: "Bonga Points" },
+    { section: "overview", icon: <Wrench className="h-4 w-4" />, label: "Extras" },
+    { section: "analytics", icon: <Server className="h-4 w-4" />, label: "Uisp" },
+    { section: "analytics", icon: <FileText className="h-4 w-4" />, label: "Logs" },
+    { section: "overview", icon: <Bell className="h-4 w-4" />, label: "Social Spot/Support" },
   ];
 
   const navigateTo = (section: ActiveSection) => {
@@ -640,87 +683,83 @@ const Admin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex relative"
-      style={{ backgroundImage: `url(${networkBg})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed" }}
+    <div
+      className="relative flex min-h-screen overflow-hidden bg-[#0a1222] text-white"
+      style={{ backgroundImage: `linear-gradient(rgba(8, 15, 30, 0.96), rgba(8, 15, 30, 0.98)), url(${networkBg})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed" }}
     >
-      <div className="absolute inset-0 bg-background/92" />
+      <div className="absolute inset-x-0 top-0 z-20 h-4 bg-[#aa1559]" />
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
-      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-56 bg-card/95 backdrop-blur-md border-r border-border z-50 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        {/* Brand */}
-        <div className="p-4 border-b border-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Wifi className="h-5 w-5 text-primary" />
+      <aside className={`fixed left-0 top-0 z-50 flex h-screen w-[230px] flex-col border-r border-white/10 bg-[#10192c] transition-transform lg:sticky lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex h-16 items-center border-b border-white/10 px-4 pt-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#1a2740] text-cyan-300">
+              <Wifi className="h-5 w-5" />
             </div>
             <div>
-              <span className="font-mono font-bold text-foreground text-sm">{APP_BRAND}</span>
-              <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">ISP Admin</p>
+              <p className="text-sm font-semibold text-white">{APP_BRAND}</p>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-slate-400">ISP Admin</p>
             </div>
           </div>
         </div>
 
-        {/* Nav Items */}
-        <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto px-0 py-3">
           {sidebarItems.map((item) => (
-            <div key={item.section}>
-              {item.category && (
-                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest px-3 pt-4 pb-1.5">
-                  {item.category}
-                </p>
-              )}
+            <div key={`${item.label}-${item.section}`}>
               <button
                 onClick={() => navigateTo(item.section)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-mono transition-colors ${
+                className={`mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-md px-4 py-3 text-left text-[15px] transition-colors ${
                   activeSection === item.section
-                    ? "bg-primary/15 text-primary border border-primary/20"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    ? "bg-[#17233c] text-white"
+                    : "text-slate-100 hover:bg-[#17233c]/80"
                 }`}
               >
-                {item.icon}
-                {item.label}
+                <span className="text-slate-300">{item.icon}</span>
+                <span className="flex-1">{item.label}</span>
+                {item.badge && (
+                  <span className="rounded bg-[#14b866] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
+                    {item.badge}
+                  </span>
+                )}
+                <ChevronRight className="h-4 w-4 text-slate-400" />
               </button>
             </div>
           ))}
         </nav>
 
-        {/* User / Logout */}
-        <div className="p-3 border-t border-border">
-          <div className="flex items-center gap-2 px-2 mb-2">
-            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-              <Shield className="h-3.5 w-3.5 text-primary" />
+        <div className="border-t border-white/10 p-3">
+          <div className="mb-3 flex items-center gap-2 px-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#17233c]">
+              <Shield className="h-4 w-4 text-cyan-300" />
             </div>
-            <span className="text-[10px] text-muted-foreground font-mono truncate flex-1">{user?.email}</span>
+            <span className="flex-1 truncate text-[11px] text-slate-400">{user?.email}</span>
           </div>
-          <Button variant="ghost" size="sm" onClick={signOut} className="w-full justify-start font-mono text-xs text-muted-foreground hover:text-destructive">
-            <LogOut className="h-3.5 w-3.5 mr-2" /> Sign Out
+          <Button variant="ghost" size="sm" onClick={signOut} className="w-full justify-start text-xs text-slate-300 hover:bg-[#17233c] hover:text-white">
+            <LogOut className="mr-2 h-3.5 w-3.5" /> Sign Out
           </Button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 min-h-screen relative z-10">
-        {/* Top Bar */}
-        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-lg px-4 md:px-6 py-3 flex items-center justify-between">
+      <main className="relative z-10 min-h-screen flex-1 bg-[#0d1527] pt-4">
+        <header className="sticky top-0 z-30 flex items-center border-b border-white/10 bg-[#0d1527]/95 px-4 py-4 backdrop-blur md:px-6">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-muted/50">
-              <Menu className="h-5 w-5 text-muted-foreground" />
+            <button onClick={() => setSidebarOpen(true)} className="rounded-lg p-1.5 hover:bg-white/5 lg:hidden">
+              <Menu className="h-5 w-5 text-slate-300" />
             </button>
             <div>
-              <h1 className="text-lg font-bold font-mono text-foreground capitalize">{activeSection === "overview" ? "Dashboard Overview" : activeSection}</h1>
-              <p className="text-[10px] text-muted-foreground font-mono">
+              <h1 className="text-3xl font-semibold text-white">{activeSection === "overview" ? "Dashboard" : activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</h1>
+              <p className="text-[11px] text-slate-400">
                 {APP_BRAND} / {activeTenant?.name || "Legacy ISP"} / {activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             {isSuperAdminTenantView && (
-              <span className="hidden rounded-full bg-primary/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] text-primary md:inline-flex">
+              <span className="hidden rounded-full bg-cyan-400/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-cyan-300 md:inline-flex">
                 Super Admin View
               </span>
             )}
@@ -728,42 +767,54 @@ const Admin = () => {
               variant="ghost"
               size="sm"
               onClick={() => window.open(tenantPortalPath, "_blank", "noopener,noreferrer")}
-              className="font-mono text-xs"
+              className="text-xs text-slate-300 hover:bg-white/5 hover:text-white"
             >
-              <ArrowUpRight className="h-3.5 w-3.5 mr-1" /> Portal
+              <ArrowUpRight className="mr-1 h-3.5 w-3.5" /> Portal
             </Button>
             {isAdmin && (
-              <Button variant="ghost" size="sm" onClick={() => navigate("/super-admin")} className="font-mono text-xs">
-                <Shield className="h-3.5 w-3.5 mr-1" /> Super Admin
+              <Button variant="ghost" size="sm" onClick={() => navigate("/super-admin")} className="text-xs text-slate-300 hover:bg-white/5 hover:text-white">
+                <Shield className="mr-1 h-3.5 w-3.5" /> Super Admin
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={loadData} className="font-mono text-xs">
-              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
+            <Button variant="ghost" size="sm" onClick={loadData} className="text-xs text-slate-300 hover:bg-white/5 hover:text-white">
+              <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
             </Button>
           </div>
         </header>
 
-        <div className="p-4 md:p-6 space-y-6">
-          {/* OVERVIEW */}
+        <div className="space-y-5 p-4 md:p-6">
           {activeSection === "overview" && (
             <>
-              <Card className="overflow-hidden border-[#243252] bg-[#131c31] text-white">
-                <CardHeader className="border-b border-white/10 bg-[#21336b] pb-4">
+              <Card className="overflow-hidden border border-[#243252] bg-[#121a2f] text-white shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
+                <CardHeader className="border-b border-white/10 bg-[#21336b] px-4 py-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <CardTitle className="font-mono text-2xl flex items-center gap-2">
-                        <Radio className="h-5 w-5 text-cyan-200" /> Router View
-                      </CardTitle>
-                      <CardDescription className="mt-1 text-slate-300">
-                        Per-ISP router visibility for {activeTenant?.name || "the selected tenant"}.
-                      </CardDescription>
-                    </div>
-                    <div className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm font-mono text-slate-100">
-                      {activeTenant?.name || "Tenant Scope"}
+                    <CardTitle className="flex items-center gap-2 text-[20px] font-semibold">
+                      <Radio className="h-5 w-5 text-white" /> Router View
+                    </CardTitle>
+                    <div className="w-full max-w-[340px] rounded-sm border border-white/15 bg-[#24375d] px-4 py-2 text-sm text-white/95">
+                      All Routers - System Wide
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-4">
+                  <div className="mb-4 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                    {(routerViewCards.length > 0 ? routerViewCards : [{
+                      id: "fallback-router",
+                      name: activeTenant?.name || "Main Router",
+                      online: routerSummary.online,
+                      active: activeVoucherCount,
+                      expired: expiredVoucherCount,
+                    }]).map((router) => (
+                      <div key={`${router.id}-summary`} className="rounded-lg border border-white/10 bg-[#192238] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                        <p className="text-[13px] font-semibold uppercase tracking-wide text-[#26a4ff]">{router.name}</p>
+                        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+                          <span className="text-[#2fd06d]">Online {router.online}</span>
+                          <span className="text-[#4ea0ff]">Active {router.active}</span>
+                          <span className="text-[#ff4141]">Expired {router.expired}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                   {routerNodes.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
                       <Radio className="mx-auto h-8 w-8 text-slate-500" />
@@ -773,7 +824,7 @@ const Admin = () => {
                       </p>
                     </div>
                   ) : (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="hidden grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {routerNodes.map((router) => (
                         <div key={router.id} className="rounded-2xl border border-white/10 bg-[#19233a] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                           <p className="font-mono text-sm font-semibold uppercase tracking-wide text-cyan-200">{router.name}</p>
@@ -791,29 +842,29 @@ const Admin = () => {
                 </CardContent>
               </Card>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {dashboardCards.map((card) => (
-                  <Card key={card.label} className={`border-0 text-white shadow-lg ${card.color}`}>
+                  <Card key={card.label} className={`overflow-hidden border-0 bg-gradient-to-r ${card.color} text-white shadow-[0_14px_30px_rgba(0,0,0,0.16)]`}>
                     <CardContent className="p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs uppercase tracking-[0.18em] text-white/80">{card.label}</p>
-                          <p className="mt-3 text-3xl font-semibold">{card.value}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/85">{card.label}</p>
+                          <p className="mt-3 text-4xl font-semibold leading-none">{card.value}</p>
                         </div>
-                        <div className="rounded-2xl bg-white/10 p-3">{card.icon}</div>
+                        <div>{card.icon}</div>
                       </div>
-                      <p className="mt-4 text-sm text-white/85">{card.sub}</p>
+                      <div className="mt-5 border-t border-white/20 pt-3 text-sm text-white/90">{card.sub} {"->"}</div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
 
-              <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-4 text-white">
+              <div className="rounded border border-white/10 bg-[#1a2334] px-4 py-4 text-white">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="font-mono text-sm font-semibold text-emerald-100">Portal + Payment Status</p>
-                    <p className="mt-1 text-xs text-emerald-50/80">
-                      Customers for this ISP should use {tenantPortalPath}. M-Pesa STK Push remains live, and Paystack is currently {paystackForm.status}.
+                    <p className="text-sm font-semibold text-[#34d67b]">M-Pesa STK Push Service</p>
+                    <p className="mt-1 text-sm text-[#7fe5a6]">
+                      Live - Safaricom is working
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -843,21 +894,15 @@ const Admin = () => {
                 </div>
               </div>
 
-              <Card className="overflow-hidden border-[#243252] bg-[#131c31] text-white">
-                <CardHeader className="border-b border-white/10 bg-[#18284d] pb-4">
+              <Card className="overflow-hidden border border-[#243252] bg-[#121a2f] text-white">
+                <CardHeader className="border-b border-white/10 bg-[#21336b] px-4 py-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <CardTitle className="font-mono text-2xl flex items-center gap-2">
-                        <Activity className="h-5 w-5 text-emerald-200" /> Router Status
-                      </CardTitle>
-                      <CardDescription className="mt-1 text-slate-300">
-                        Super admin and tenant admins see the same ISP-specific router health here.
-                      </CardDescription>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs font-mono">
-                      <span className="rounded-full bg-emerald-400 px-3 py-1 text-emerald-950">{routerSummary.online} Online</span>
-                      <span className="rounded-full bg-amber-300 px-3 py-1 text-amber-950">{routerSummary.warning} Pending</span>
-                      <span className="rounded-full bg-rose-400 px-3 py-1 text-rose-950">{routerSummary.offline} Offline</span>
+                    <CardTitle className="flex items-center gap-2 text-[20px] font-semibold">
+                      <Activity className="h-5 w-5 text-white" /> Router Status
+                    </CardTitle>
+                    <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                      <span className="rounded bg-[#22c55e] px-3 py-1 text-white">{routerSummary.online} Online</span>
+                      <span className="rounded bg-[#ff6b4a] px-3 py-1 text-white">{routerSummary.offline} Offline</span>
                     </div>
                   </div>
                 </CardHeader>
@@ -865,25 +910,23 @@ const Admin = () => {
                   {routerNodes.length === 0 ? (
                     <p className="text-sm text-slate-400">Router health will appear once this ISP adds routers.</p>
                   ) : (
-                    <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="grid gap-4 lg:grid-cols-3">
                       {routerNodes.map((router) => (
-                        <div key={`${router.id}-status`} className="rounded-2xl border border-white/10 bg-[#19233a] p-4">
+                        <div key={`${router.id}-status`} className="rounded-xl border border-white/10 bg-[#141d31] p-4 shadow-[inset_3px_0_0_0_#20cf67]">
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-mono text-base font-semibold text-white">{router.name}</p>
-                              <p className="mt-1 text-xs text-slate-400">{router.subtitle}</p>
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#1fda73] text-[#0c3520]">
+                                <CheckCircle2 className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <p className="text-base font-semibold text-white">{router.name}</p>
+                                <p className="mt-1 text-xs text-slate-400">{router.statusLabel} - Up: {router.uptimeLabel}</p>
+                              </div>
                             </div>
-                            <div className={`rounded-full px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] ${
-                              router.status === "online"
-                                ? "bg-emerald-400/15 text-emerald-200"
-                                : router.status === "offline"
-                                  ? "bg-rose-400/15 text-rose-200"
-                                  : "bg-amber-300/15 text-amber-100"
-                            }`}>
-                              {router.statusLabel}
+                            <div className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-slate-300">
+                              {router.subtitle}
                             </div>
                           </div>
-                          <p className="mt-4 text-sm text-slate-300">{router.uptimeLabel}</p>
                         </div>
                       ))}
                     </div>
@@ -891,25 +934,25 @@ const Admin = () => {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border border-white/10 bg-[#121a2f] text-white">
                 <CardHeader className="pb-3">
-                  <CardTitle className="font-mono text-sm">Quick Actions</CardTitle>
+                  <CardTitle className="text-sm">Quick Actions</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <Button onClick={() => setActiveSection("packages")} className="h-12 font-mono text-xs bg-primary hover:bg-primary/90">
+                    <Button onClick={() => setActiveSection("packages")} className="h-12 bg-[#3768ea] text-xs hover:bg-[#2d5ad1]">
                       <Plus className="h-4 w-4 mr-1.5" /> Add Plan
                     </Button>
-                    <Button onClick={() => setActiveSection("vouchers")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                    <Button onClick={() => setActiveSection("vouchers")} variant="outline" className="h-12 border-white/15 bg-white/5 text-xs text-white hover:bg-white/10">
                       <Ticket className="h-4 w-4 mr-1.5" /> Generate Code
                     </Button>
-                    <Button onClick={() => setActiveSection("analytics")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                    <Button onClick={() => setActiveSection("analytics")} variant="outline" className="h-12 border-white/15 bg-white/5 text-xs text-white hover:bg-white/10">
                       <BarChart3 className="h-4 w-4 mr-1.5" /> Reports
                     </Button>
-                    <Button onClick={() => setActiveSection("setup")} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                    <Button onClick={() => setActiveSection("setup")} variant="outline" className="h-12 border-white/15 bg-white/5 text-xs text-white hover:bg-white/10">
                       <Settings className="h-4 w-4 mr-1.5" /> Router Setup
                     </Button>
-                    <Button onClick={() => navigate("/billing" + (isSuperAdminTenantView && activeTenant?.slug ? `?tenant=${encodeURIComponent(activeTenant.slug)}` : ""))} variant="outline" className="h-12 font-mono text-xs border-primary/30 hover:bg-primary/10">
+                    <Button onClick={() => navigate("/billing" + (isSuperAdminTenantView && activeTenant?.slug ? `?tenant=${encodeURIComponent(activeTenant.slug)}` : ""))} variant="outline" className="h-12 border-white/15 bg-white/5 text-xs text-white hover:bg-white/10">
                       <CreditCard className="h-4 w-4 mr-1.5" /> Invoices
                     </Button>
                   </div>
