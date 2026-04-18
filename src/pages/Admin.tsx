@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import networkBg from "@/assets/network-bg.png";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
@@ -19,6 +19,7 @@ import {
   Radio, Menu, X, ChevronRight, Bell, FileText, Wrench, Server, Globe, Network
 } from "lucide-react";
 import { format, subDays, startOfDay, parseISO, isToday, isThisWeek, isThisMonth } from "date-fns";
+import { buildMikroTikShellHtml } from "@/lib/mikrotik";
 
 interface VoucherRow {
   id: string;
@@ -108,13 +109,18 @@ const Admin = () => {
   const { user, isAdmin, loading: authLoading, signOut } = useAuth();
   const { activeTenant, tenantMembershipRole, loading: platformLoading } = usePlatform();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [routers, setRouters] = useState<TenantRouterRow[]>([]);
   const [routerSettings, setRouterSettings] = useState<RouterSettingsRow | null>(null);
   const [loadingData, setLoadingData] = useState(true);
-  const [activeSection, setActiveSection] = useState<ActiveSection>("overview");
+  const requestedSection = searchParams.get("section");
+  const initialSection: ActiveSection = requestedSection === "analytics" || requestedSection === "vouchers" || requestedSection === "sessions" || requestedSection === "packages" || requestedSection === "setup"
+    ? requestedSection
+    : "overview";
+  const [activeSection, setActiveSection] = useState<ActiveSection>(initialSection);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "", device_limit: 1 });
@@ -161,6 +167,12 @@ const Admin = () => {
   useEffect(() => {
     if (user) loadData();
   }, [user, activeTenant?.id]);
+
+  useEffect(() => {
+    if (requestedSection === "analytics" || requestedSection === "vouchers" || requestedSection === "sessions" || requestedSection === "packages" || requestedSection === "setup" || requestedSection === "overview") {
+      setActiveSection(requestedSection);
+    }
+  }, [requestedSection]);
 
   const hasScopedTenant = !!activeTenant?.id && activeTenant.id !== "legacy-fallback";
 
@@ -634,7 +646,10 @@ const Admin = () => {
   const generateLoginHtml = () => {
     const portalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
     const portalUrl = window.location.origin + portalPath;
-    const html = `<!DOCTYPE html><html><head><title>${APP_BRAND} Login</title><meta http-equiv="refresh" content="0;url=${portalUrl}"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><p>Redirecting...</p><script>window.location.href="${portalUrl}";</script></body></html>`;
+    const html = buildMikroTikShellHtml({
+      portalUrl,
+      title: `${activeTenant?.name || APP_BRAND} Captive Portal`,
+    });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = "login.html"; a.click();
@@ -766,7 +781,7 @@ const Admin = () => {
           <div className="ml-auto flex items-center gap-2">
             {isSuperAdminTenantView && (
               <span className="hidden rounded-full bg-cyan-400/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-cyan-300 md:inline-flex">
-                Super Admin View
+                Scoped Tenant Session
               </span>
             )}
             <Button
@@ -777,11 +792,6 @@ const Admin = () => {
             >
               <ArrowUpRight className="mr-1 h-3.5 w-3.5" /> Portal
             </Button>
-            {isAdmin && (
-              <Button variant="ghost" size="sm" onClick={() => navigate("/super-admin")} className="text-xs text-slate-300 hover:bg-white/5 hover:text-white">
-                <Shield className="mr-1 h-3.5 w-3.5" /> Super Admin
-              </Button>
-            )}
             <Button variant="ghost" size="sm" onClick={loadData} className="text-xs text-slate-300 hover:bg-white/5 hover:text-white">
               <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
             </Button>
@@ -890,12 +900,6 @@ const Admin = () => {
                       <CreditCard className="mr-2 h-4 w-4" />
                       View Invoices
                     </Button>
-                    {isSuperAdminTenantView && (
-                      <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate("/super-admin")}>
-                        <Shield className="mr-2 h-4 w-4" />
-                        Back to Super Admin
-                      </Button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1432,7 +1436,7 @@ const Admin = () => {
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
                     <div>
                       <p className="font-mono font-semibold text-xs">login.html</p>
-                      <p className="text-[10px] text-muted-foreground">Redirect page for captive portal</p>
+                      <p className="text-[10px] text-muted-foreground">Thin router shell that opens the hosted captive portal with MikroTik session params intact</p>
                     </div>
                     <Button variant="outline" size="sm" onClick={generateLoginHtml} className="font-mono text-xs">
                       <Download className="h-3.5 w-3.5 mr-1" /> Download

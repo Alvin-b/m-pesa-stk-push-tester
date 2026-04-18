@@ -305,6 +305,14 @@ const loginMikroTik = (code: string) => {
   if (mt.chapChallenge) loginUrl.searchParams.set("chap-challenge", mt.chapChallenge);
   loginUrl.searchParams.set("popup", "false");
   setTimeout(() => {
+    try {
+      if (window.top && window.top !== window) {
+        window.top.location.href = loginUrl.toString();
+        return;
+      }
+    } catch (error) {
+      console.warn("Unable to access top window, falling back to local redirect:", error);
+    }
     window.location.href = loginUrl.toString();
   }, 1000);
 };
@@ -785,6 +793,14 @@ const Portal = () => {
         return;
       }
 
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.href = data.authorizationUrl as string;
+          return;
+        }
+      } catch (error) {
+        console.warn("Unable to access top window for Paystack redirect:", error);
+      }
       window.location.href = data.authorizationUrl as string;
     } catch (err: any) {
       setError(err.message || "Something went wrong");

@@ -14,6 +14,7 @@ import PlatformAdmin from "./pages/PlatformAdmin";
 import BillingLockPreview from "./pages/BillingLockPreview";
 import TenantBilling from "./pages/TenantBilling";
 import { useAuth } from "@/lib/auth";
+import LandingPage from "./pages/LandingPage";
 
 const queryClient = new QueryClient();
 
@@ -23,7 +24,7 @@ const HomeRoute = () => {
 
   if (authLoading || platformLoading) return null;
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <LandingPage />;
   }
 
   if (isAdmin) {

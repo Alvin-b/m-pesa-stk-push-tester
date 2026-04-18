@@ -18,6 +18,7 @@ const AdminLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [supportPhone, setSupportPhone] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessSlug, setBusinessSlug] = useState("");
   const [isSignUp, setIsSignUp] = useState(signUpRequested);
@@ -44,11 +45,11 @@ const AdminLogin = () => {
     setSuccess("");
 
     if (isSignUp) {
-      const { error: signUpError } = await signUp(email, password, fullName, businessName, businessSlug);
+      const { error: signUpError } = await signUp(email, password, fullName, businessName, businessSlug, supportPhone);
       if (signUpError) {
         setError(signUpError);
       } else {
-        setSuccess(`Account created. Verify your email, then sign in to open your ${APP_BRAND} ISP dashboard.`);
+        setSuccess(`Account created. Your tenant portal will be provisioned automatically after signup. Verify your email, then sign in to open your ${APP_BRAND} ISP dashboard.`);
         setIsSignUp(false);
         navigate("/login");
       }
@@ -153,6 +154,18 @@ const AdminLogin = () => {
                   />
                 </div>
                 <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground font-mono">Support Phone</label>
+                  <Input
+                    value={supportPhone}
+                    onChange={(e) => setSupportPhone(e.target.value)}
+                    placeholder="+2547xxxxxxxx"
+                    className="font-mono bg-muted/30 h-11"
+                  />
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    This helps the onboarding team reach you for MikroTik setup.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground font-mono">Portal Slug</label>
                   <Input
                     value={businessSlug}
@@ -209,7 +222,7 @@ const AdminLogin = () => {
             </Button>
           </form>
           <p className="text-center text-[11px] font-mono text-muted-foreground">
-            Customer portals stay tenant-specific at `/portal/your-isp-slug`.
+            Customer portals stay tenant-specific at `/portal/your-isp-slug`, and signup auto-creates that tenant shell.
           </p>
         </CardContent>
       </Card>

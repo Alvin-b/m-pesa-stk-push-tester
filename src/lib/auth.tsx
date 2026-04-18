@@ -14,6 +14,7 @@ interface AuthContextType {
     fullName: string,
     tenantName?: string,
     tenantSlug?: string,
+    supportPhone?: string,
   ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fullName: string,
     tenantName?: string,
     tenantSlug?: string,
+    supportPhone?: string,
   ) => {
     const { error } = await supabase.auth.signUp({
       email,
@@ -80,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           full_name: fullName,
           tenant_name: tenantName,
           tenant_slug: tenantSlug,
+          support_phone: supportPhone,
         },
         emailRedirectTo: window.location.origin,
       },

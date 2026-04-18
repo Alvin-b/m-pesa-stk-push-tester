@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
 import { supabase } from "@/integrations/supabase/client";
+import { buildMikroTikShellHtml } from "@/lib/mikrotik";
 import {
   ArrowUpRight,
   BellRing,
@@ -271,7 +272,10 @@ const TenantWorkspace = () => {
   const portalUrl = typeof window !== "undefined" ? `${window.location.origin}${portalPath}` : portalPath;
 
   const downloadLoginHtml = () => {
-    const html = `<!DOCTYPE html><html><head><title>${activeTenant?.name || "WiFi Portal"}</title><meta http-equiv="refresh" content="0;url=${portalUrl}"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><p>Redirecting to portal...</p><script>window.location.href=${JSON.stringify(portalUrl)};</script></body></html>`;
+    const html = buildMikroTikShellHtml({
+      portalUrl,
+      title: `${activeTenant?.name || APP_BRAND} Captive Portal`,
+    });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -454,7 +458,7 @@ const TenantWorkspace = () => {
                     <Router className="mx-auto h-8 w-8 text-slate-500" />
                     <p className="mt-4 font-medium text-white">No stations added yet.</p>
                     <p className="mt-2 text-sm text-slate-400">
-                      Add your first MikroTik above, then upload the tenant `login.html` file so customers land on your own portal.
+                      Add your first MikroTik above, then upload the tenant `login.html` shell so customers land on your hosted portal through the local router entry point.
                     </p>
                   </div>
                 ) : liveRouters.map((router) => (
