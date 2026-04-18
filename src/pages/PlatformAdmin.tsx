@@ -3,7 +3,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { superAdminMetrics, tenants } from "@/data/platform-demo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { APP_BRAND, APP_PLATFORM_NAME } from "@/lib/brand";
@@ -11,6 +10,7 @@ import { usePlatform } from "@/lib/platform";
 import {
   ArrowRight,
   BadgeCheck,
+  BriefcaseBusiness,
   Building2,
   CircleAlert,
   Cpu,
@@ -23,6 +23,7 @@ import {
   PanelsTopLeft,
   Radar,
   Rocket,
+  Rows3,
   ScrollText,
   ServerCog,
   Shield,
@@ -61,15 +62,13 @@ const PlatformAdmin = () => {
   const navigate = useNavigate();
   const { user, isAdmin, loading: authLoading } = useAuth();
   const { loading: platformLoading } = usePlatform();
-  const [tenantRows, setTenantRows] = useState<PlatformTenantRow[]>(
-    tenants.map((tenant) => ({
-      ...tenant,
-      supportEmail: null,
-      supportPhone: null,
-      setupStatus: "ready",
-    })),
-  );
-  const [metricRows, setMetricRows] = useState(superAdminMetrics);
+  const [tenantRows, setTenantRows] = useState<PlatformTenantRow[]>([]);
+  const [metricRows, setMetricRows] = useState([
+    { label: "Live ISPs", value: "0", change: "Tenant records in the platform", tone: "positive" as const },
+    { label: "Platform Billings", value: "KES 0", change: "Paid invoice volume to date", tone: "positive" as const },
+    { label: "Suspended Accounts", value: "0", change: "Two-invoice auto-lock candidates", tone: "neutral" as const },
+    { label: "Provisioning Jobs", value: "0", change: "Router setup activity", tone: "neutral" as const },
+  ]);
   const [jobRows, setJobRows] = useState<Array<{ id: string; status: string }>>([]);
   const [savingTenant, setSavingTenant] = useState(false);
   const [tenantError, setTenantError] = useState("");
@@ -133,7 +132,7 @@ const PlatformAdmin = () => {
     {
       id: "fleet-lane",
       title: "ISP fleet control",
-      copy: "Inspect tenant health, jump into workspace context, or review billing without exposing superadmin controls inside the ISP dashboard.",
+      copy: "Inspect tenant health, jump into ISP admin setup, or review billing without exposing superadmin controls inside the ISP dashboard.",
       icon: Building2,
       actions: [
         {
@@ -256,14 +255,14 @@ const PlatformAdmin = () => {
         const successfulJobs = jobData.filter((job) => job.status === "successful").length;
 
         setMetricRows([
-          { label: "Live ISPs", value: `${tenantData.length || tenants.length}`, change: "Tenant records in the platform", tone: "positive" },
+          { label: "Live ISPs", value: `${tenantData.length}`, change: "Tenant records in the platform", tone: "positive" },
           { label: "Platform Billings", value: `KES ${paidRevenue.toLocaleString()}`, change: "Paid invoice volume to date", tone: "positive" },
           { label: "Suspended Accounts", value: `${suspended}`, change: "Two-invoice auto-lock candidates", tone: suspended > 0 ? "warning" : "neutral" },
           { label: "Provisioning Jobs", value: `${jobData.length}`, change: `${successfulJobs} marked successful`, tone: "neutral" },
         ]);
       }
     } catch (error) {
-      console.warn("Platform admin using demo data:", error);
+      console.warn("Platform admin failed to load live data:", error);
     }
   };
 
@@ -312,29 +311,29 @@ const PlatformAdmin = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#07111f] text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(13,148,136,0.18),_transparent_28%),radial-gradient(circle_at_80%_0%,_rgba(249,115,22,0.14),_transparent_24%),linear-gradient(180deg,_#07111f_0%,_#09182d_48%,_#050b15_100%)]" />
+    <div className="min-h-screen bg-[#120d0a] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_26%),radial-gradient(circle_at_80%_10%,_rgba(34,197,94,0.14),_transparent_24%),linear-gradient(180deg,_#120d0a_0%,_#1f1410_44%,_#0b1118_100%)]" />
       <div className="relative mx-auto max-w-7xl px-4 py-8 md:px-8">
-        <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a1528]/90 shadow-[0_28px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-          <div className="grid gap-8 px-6 py-7 md:px-8 md:py-8 xl:grid-cols-[1.3fr_0.7fr]">
+        <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(39,24,18,0.96),rgba(16,23,31,0.94))] shadow-[0_28px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+          <div className="grid gap-8 px-6 py-7 md:px-8 md:py-8 xl:grid-cols-[1.2fr_0.8fr]">
             <div>
-              <Badge className="border-emerald-300/25 bg-emerald-400/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-emerald-100">
-                Standalone Super Admin
+              <Badge className="border-amber-300/25 bg-amber-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-amber-100">
+                Techflix Control Room
               </Badge>
               <h1 className="mt-5 max-w-4xl text-3xl font-semibold tracking-tight text-white md:text-5xl">
-                Secure platform control room for tenants, billing, and router operations.
+                Superadmin operations for onboarding, billing, and MikroTik rollout.
               </h1>
               <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
-                {APP_BRAND} keeps the platform layer separate from ISP dashboards. Use this screen for tenant oversight,
-                platform billing controls, provisioning visibility, and guarded hand-offs into {APP_PLATFORM_NAME}.
+                A sharper platform view for Techflix Softwares. Review tenants, contact new signups, push onboarding
+                forward, and hand each ISP into its own admin dashboard without mixing privileges.
               </p>
 
               <div className="mt-8 grid gap-4 md:grid-cols-3">
                 {platformLanes.map((lane) => {
                   const Icon = lane.icon;
                   return (
-                    <div key={lane.id} className="rounded-[1.6rem] border border-white/10 bg-white/[0.04] p-5">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-emerald-100">
+                    <div key={lane.id} className="rounded-[1.6rem] border border-white/10 bg-black/15 p-5">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-300/10 text-amber-100">
                         <Icon className="h-5 w-5" />
                       </div>
                       <h2 className="mt-4 text-lg font-semibold text-white">{lane.title}</h2>
@@ -348,7 +347,7 @@ const PlatformAdmin = () => {
                               ? "border-white/15 bg-white/5 text-white hover:bg-white/10"
                               : action.variant === "ghost"
                                 ? "text-white hover:bg-white/10"
-                                : "bg-white text-slate-950 hover:bg-slate-100"}
+                                : "bg-amber-300 text-slate-950 hover:bg-amber-200"}
                             onClick={action.onClick}
                           >
                             {action.label}
@@ -361,13 +360,13 @@ const PlatformAdmin = () => {
               </div>
             </div>
 
-            <div className="space-y-4 rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5">
+            <div className="space-y-4 rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] p-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Platform posture</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">Control without cross-linking</p>
+                  <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Command overview</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">Daily operating picture</p>
                 </div>
-                <Shield className="h-6 w-6 text-emerald-200" />
+                <BriefcaseBusiness className="h-6 w-6 text-amber-200" />
               </div>
               {platformSignals.map((signal) => {
                 const Icon = signal.icon;
@@ -383,10 +382,10 @@ const PlatformAdmin = () => {
                   </div>
                 );
               })}
-              <div className="rounded-2xl border border-white/10 bg-[#0a1221] p-4">
+              <div className="rounded-2xl border border-white/10 bg-[#17110d] p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-white">Tenant status mix</p>
-                  <Globe2 className="h-4 w-4 text-slate-400" />
+                  <Rows3 className="h-4 w-4 text-slate-400" />
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="rounded-2xl bg-emerald-400/10 p-3">
@@ -409,9 +408,9 @@ const PlatformAdmin = () => {
 
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {metricRows.map((metric) => (
-            <Card key={metric.label} className="overflow-hidden border-white/10 bg-[#0a1526]/90 text-white">
+            <Card key={metric.label} className="overflow-hidden border-white/10 bg-[rgba(18,12,10,0.86)] text-white">
               <CardContent className="p-0">
-                <div className="h-1 w-full bg-gradient-to-r from-emerald-300 via-cyan-300 to-orange-300" />
+                <div className="h-1 w-full bg-gradient-to-r from-amber-300 via-orange-300 to-emerald-300" />
                 <div className="p-5">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{metric.label}</p>
                   <p className="mt-3 text-3xl font-semibold">{metric.value}</p>
@@ -423,7 +422,7 @@ const PlatformAdmin = () => {
         </div>
 
         <div className="mt-8 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-          <Card id="tenant-grid" className="border-white/10 bg-white/[0.04] text-white">
+          <Card id="tenant-grid" className="border-white/10 bg-[rgba(15,12,11,0.7)] text-white">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-xl">Tenant Grid</CardTitle>
@@ -443,8 +442,8 @@ const PlatformAdmin = () => {
                       <p className="mt-1 text-sm text-slate-400">/{tenant.slug}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/workspace?tenant=${encodeURIComponent(tenant.slug)}`)}>
-                        Open Workspace
+                      <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/admin?tenant=${encodeURIComponent(tenant.slug)}`)}>
+                        Open ISP Admin
                         <LayoutDashboard className="ml-2 h-4 w-4" />
                       </Button>
                       <Button variant="ghost" className="justify-start text-white hover:bg-white/10 md:justify-center" onClick={() => navigate(`/admin?tenant=${encodeURIComponent(tenant.slug)}&section=setup`)}>
@@ -495,7 +494,7 @@ const PlatformAdmin = () => {
           </Card>
 
           <div className="space-y-6">
-            <Card className="border-white/10 bg-white/[0.04] text-white">
+            <Card className="border-white/10 bg-[rgba(15,12,11,0.7)] text-white">
               <CardHeader id="provision-jobs">
                 <CardTitle className="text-xl">Automation Spine</CardTitle>
               </CardHeader>
@@ -546,7 +545,7 @@ const PlatformAdmin = () => {
               </CardContent>
             </Card>
 
-            <Card className="border-white/10 bg-white/[0.04] text-white">
+            <Card className="border-white/10 bg-[rgba(15,12,11,0.7)] text-white">
               <CardHeader id="system-gates">
                 <CardTitle className="text-xl">System Gates</CardTitle>
               </CardHeader>
@@ -578,7 +577,7 @@ const PlatformAdmin = () => {
         </div>
 
         <div className="mt-8 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <Card id="tenant-onboarding" className="border-white/10 bg-white/[0.04] text-white">
+          <Card id="tenant-onboarding" className="border-white/10 bg-[rgba(15,12,11,0.7)] text-white">
             <CardHeader>
               <CardTitle className="text-xl">Tenant Onboarding</CardTitle>
             </CardHeader>
@@ -637,7 +636,7 @@ const PlatformAdmin = () => {
             </CardContent>
           </Card>
 
-          <Card className="border-white/10 bg-white/[0.04] text-white">
+          <Card className="border-white/10 bg-[rgba(15,12,11,0.7)] text-white">
             <CardHeader>
               <CardTitle className="text-xl">Operator Notes</CardTitle>
             </CardHeader>
@@ -649,7 +648,7 @@ const PlatformAdmin = () => {
                 </div>
                 <p className="mt-2">
                   Create the tenant shell here, invite the owner account, seed packages, then let the tenant add its
-                  first router from the workspace so jobs and invoices become tenant-scoped immediately.
+                  first router from the ISP admin dashboard so jobs and invoices become tenant-scoped immediately.
                 </p>
               </div>
               <div className="rounded-2xl bg-[#0d1729] p-4">
@@ -658,7 +657,7 @@ const PlatformAdmin = () => {
                   <p className="font-medium text-white">Billing enforcement</p>
                 </div>
                 <p className="mt-2">
-                  Suspended tenants now land in the billing desk instead of reaching the admin workspace, which keeps
+                  Suspended tenants now land in the billing desk instead of reaching the ISP admin dashboard, which keeps
                   the invoice lock consistent across routes.
                 </p>
               </div>

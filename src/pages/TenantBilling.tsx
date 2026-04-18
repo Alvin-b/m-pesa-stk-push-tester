@@ -230,9 +230,9 @@ const TenantBilling = () => {
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate(suspended ? "/workspace/billing-lock" : "/workspace")}>
+                <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => navigate(suspended ? "/billing-lock" : "/admin")}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
-                  {suspended ? "Back to lock screen" : "Back to workspace"}
+                  {suspended ? "Back to lock screen" : "Back to admin"}
                 </Button>
                 <Button className="bg-white text-slate-950 hover:bg-slate-100" onClick={copySettlementSummary} disabled={!selectedInvoice}>
                   <Copy className="mr-2 h-4 w-4" />

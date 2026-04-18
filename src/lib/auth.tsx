@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           tenant_slug: tenantSlug,
           support_phone: supportPhone,
         },
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: `${window.location.origin}/admin`,
       },
     });
     return { error: error?.message ?? null };

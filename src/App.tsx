@@ -66,8 +66,8 @@ const AppRoutes = () => (
     <Route element={<TenantAppRoute />}>
       <Route path="/admin" element={<Admin />} />
       <Route path="/isp-admin" element={<Admin />} />
-      <Route path="/workspace" element={<TenantWorkspace />} />
-      <Route path="/dashboard" element={<TenantWorkspace />} />
+      <Route path="/workspace" element={<Navigate to="/admin" replace />} />
+      <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
     </Route>
 
     <Route element={<TenantAppRoute allowBillingRecovery />}>

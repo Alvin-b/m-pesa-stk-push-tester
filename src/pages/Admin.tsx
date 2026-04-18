@@ -655,29 +655,12 @@ const Admin = () => {
   };
 
   const sidebarItems: { section: ActiveSection; icon: React.ReactNode; label: string; badge?: string }[] = [
+    { section: "overview", icon: <LayoutDashboard className="h-4 w-4" />, label: "Dashboard" },
     { section: "sessions", icon: <Users className="h-4 w-4" />, label: "Customers" },
-    { section: "vouchers", icon: <Key className="h-4 w-4" />, label: "Activation" },
-    { section: "vouchers", icon: <Ticket className="h-4 w-4" />, label: "Hotspot Vouchers" },
-    { section: "sessions", icon: <Wifi className="h-4 w-4" />, label: "Hotspot Binding" },
-    { section: "packages", icon: <Package className="h-4 w-4" />, label: "Packages/Plans" },
-    { section: "analytics", icon: <CreditCard className="h-4 w-4" />, label: "Transactions" },
-    { section: "overview", icon: <Bell className="h-4 w-4" />, label: "Support Ticket" },
-    { section: "overview", icon: <Bell className="h-4 w-4" />, label: "Notifications" },
-    { section: "setup", icon: <Network className="h-4 w-4" />, label: "Network" },
-    { section: "overview", icon: <Settings className="h-4 w-4" />, label: "Bulk Actions", badge: "New" },
-    { section: "overview", icon: <FileText className="h-4 w-4" />, label: "Static Pages" },
-    { section: "setup", icon: <Radio className="h-4 w-4" />, label: "TR069 ACS" },
-    { section: "setup", icon: <Shield className="h-4 w-4" />, label: "Device Access" },
-    { section: "setup", icon: <Wifi className="h-4 w-4" />, label: "Access Points", badge: "New" },
-    { section: "setup", icon: <Settings className="h-4 w-4" />, label: "Settings" },
-    { section: "sessions", icon: <Globe className="h-4 w-4" />, label: "PPPoE Settings" },
-    { section: "setup", icon: <Radio className="h-4 w-4" />, label: "Hotspot Settings" },
-    { section: "overview", icon: <LayoutDashboard className="h-4 w-4" />, label: "Page Builder" },
-    { section: "analytics", icon: <BarChart3 className="h-4 w-4" />, label: "Bonga Points" },
-    { section: "overview", icon: <Wrench className="h-4 w-4" />, label: "Extras" },
-    { section: "analytics", icon: <Server className="h-4 w-4" />, label: "Uisp" },
-    { section: "analytics", icon: <FileText className="h-4 w-4" />, label: "Logs" },
-    { section: "overview", icon: <Bell className="h-4 w-4" />, label: "Social Spot/Support" },
+    { section: "vouchers", icon: <Ticket className="h-4 w-4" />, label: "Vouchers" },
+    { section: "packages", icon: <Package className="h-4 w-4" />, label: "Packages" },
+    { section: "analytics", icon: <BarChart3 className="h-4 w-4" />, label: "Reports" },
+    { section: "setup", icon: <Network className="h-4 w-4" />, label: "Router Setup" },
   ];
 
   const navigateTo = (section: ActiveSection) => {

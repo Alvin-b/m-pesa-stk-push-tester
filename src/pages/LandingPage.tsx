@@ -39,7 +39,7 @@ const featureCards = [
 
 const steps = [
   "Create your ISP account and choose your portal slug.",
-  "Your tenant workspace and captive portal are provisioned automatically.",
+  "Your tenant admin dashboard and captive portal are provisioned automatically.",
   "Use the admin setup tools to configure MikroTik and start selling access.",
 ];
 
