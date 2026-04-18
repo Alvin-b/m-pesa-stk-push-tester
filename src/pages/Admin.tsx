@@ -61,6 +61,9 @@ interface RouterSettingsRow {
   radius_secret: string | null;
   radius_auth_port: number | null;
   radius_acct_port: number | null;
+  api_username: string | null;
+  api_password: string | null;
+  api_port: string | null;
 }
 
 interface TenantRouterRow {
@@ -105,6 +108,24 @@ const CHART_COLORS = [
 
 type ActiveSection = "overview" | "analytics" | "vouchers" | "sessions" | "packages" | "setup";
 
+interface RouterScriptConfig {
+  wan_interface: string;
+  lan_cidr: string;
+  dhcp_pool_start: string;
+  dhcp_pool_end: string;
+  dns_servers: string;
+  bridge_ports: string;
+}
+
+const DEFAULT_ROUTER_SCRIPT_CONFIG: RouterScriptConfig = {
+  wan_interface: "ether1",
+  lan_cidr: "10.10.0.1/24",
+  dhcp_pool_start: "10.10.0.10",
+  dhcp_pool_end: "10.10.0.250",
+  dns_servers: "8.8.8.8,1.1.1.1",
+  bridge_ports: "",
+};
+
 const Admin = () => {
   const { user, isAdmin, loading: authLoading, signOut } = useAuth();
   const { activeTenant, tenantMembershipRole, loading: platformLoading } = usePlatform();
@@ -130,11 +151,15 @@ const Admin = () => {
     router_ip: "10.10.0.1", 
     dns_name: "wifi.local", 
     hotspot_interface: "bridge-hotspot",
+    api_username: "",
+    api_password: "",
+    api_port: "8728",
     radius_server_ip: "207.126.167.78",
     radius_secret: "mikrotik_radius_secret",
     radius_auth_port: 1812,
     radius_acct_port: 1813
   });
+  const [routerScriptConfig, setRouterScriptConfig] = useState<RouterScriptConfig>(DEFAULT_ROUTER_SCRIPT_CONFIG);
   const [savingRouter, setSavingRouter] = useState(false);
   const [paystackGateway, setPaystackGateway] = useState<PaymentGatewayRow | null>(null);
   const [mpesaGateway, setMpesaGateway] = useState<PaymentGatewayRow | null>(null);
@@ -176,6 +201,32 @@ const Admin = () => {
   useEffect(() => {
     if (user) loadData();
   }, [user, activeTenant?.id]);
+
+  useEffect(() => {
+    const storageKey = activeTenant?.id ? `router-script-config:${activeTenant.id}` : null;
+    if (!storageKey) {
+      setRouterScriptConfig(DEFAULT_ROUTER_SCRIPT_CONFIG);
+      return;
+    }
+
+    const saved = localStorage.getItem(storageKey);
+    if (!saved) {
+      setRouterScriptConfig(DEFAULT_ROUTER_SCRIPT_CONFIG);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as Partial<RouterScriptConfig>;
+      setRouterScriptConfig({ ...DEFAULT_ROUTER_SCRIPT_CONFIG, ...parsed });
+    } catch {
+      setRouterScriptConfig(DEFAULT_ROUTER_SCRIPT_CONFIG);
+    }
+  }, [activeTenant?.id]);
+
+  useEffect(() => {
+    if (!activeTenant?.id) return;
+    localStorage.setItem(`router-script-config:${activeTenant.id}`, JSON.stringify(routerScriptConfig));
+  }, [activeTenant?.id, routerScriptConfig]);
 
   useEffect(() => {
     if (requestedSection === "analytics" || requestedSection === "vouchers" || requestedSection === "sessions" || requestedSection === "packages" || requestedSection === "setup" || requestedSection === "overview") {
@@ -267,11 +318,18 @@ const Admin = () => {
         router_ip: rRes.data.router_ip || "",
         dns_name: rRes.data.dns_name || "",
         hotspot_interface: rRes.data.hotspot_interface || "wlan1",
+        api_username: rRes.data.api_username || "",
+        api_password: rRes.data.api_password || "",
+        api_port: String(rRes.data.api_port || "8728"),
         radius_server_ip: rRes.data.radius_server_ip || "",
         radius_secret: rRes.data.radius_secret || "",
         radius_auth_port: rRes.data.radius_auth_port || 1812,
         radius_acct_port: rRes.data.radius_acct_port || 1813,
       });
+      setRouterScriptConfig((current) => ({
+        ...current,
+        lan_cidr: rRes.data.router_ip ? `${rRes.data.router_ip}/24` : current.lan_cidr,
+      }));
     }
     const gatewayRows = (gRes.data as unknown as PaymentGatewayRow[] | null) ?? [];
     const paystackGatewayRow = gatewayRows.find((gateway) => gateway.provider_id === "paystack") ?? null;
@@ -651,47 +709,65 @@ const Admin = () => {
   const generateRscScript = () => {
     const portalPath = activeTenant?.slug ? `/portal/${activeTenant.slug}` : "/portal";
     const portalUrl = window.location.origin + portalPath;
+    const assetBaseUrl = `${window.location.origin}/captive`;
     const iface = routerForm.hotspot_interface || "bridge-hotspot";
     const dns = routerForm.dns_name || "wifi.local";
-    const ip = routerForm.router_ip || "10.10.0.1";
-    const network = ip.replace(/\.\d+$/, ".0");
-    const poolStart = ip.replace(/\.\d+$/, ".10");
-    const poolEnd = ip.replace(/\.\d+$/, ".250");
-    const hostname = new URL(portalUrl).hostname;
+    const lanCidr = routerScriptConfig.lan_cidr.trim() || DEFAULT_ROUTER_SCRIPT_CONFIG.lan_cidr;
+    const wanInterface = routerScriptConfig.wan_interface.trim() || DEFAULT_ROUTER_SCRIPT_CONFIG.wan_interface;
+    const dnsServers = routerScriptConfig.dns_servers.trim() || DEFAULT_ROUTER_SCRIPT_CONFIG.dns_servers;
+    const bridgePorts = routerScriptConfig.bridge_ports
+      .split(",")
+      .map((port) => port.trim())
+      .filter(Boolean);
+    const hotspotUrl = new URL(portalUrl);
+    const assetUrl = new URL(assetBaseUrl);
+    const portalHost = hotspotUrl.hostname;
+    const assetHost = assetUrl.hostname;
     const radiusIp = routerForm.radius_server_ip || "207.126.167.78";
     const radiusSecret = routerForm.radius_secret || "mikrotik_radius_secret";
     const authPort = routerForm.radius_auth_port || 1812;
     const acctPort = routerForm.radius_acct_port || 1813;
-    
+    const [lanIp, prefixText] = lanCidr.split("/");
+    const prefix = Number(prefixText || 24);
+    const poolStart = routerScriptConfig.dhcp_pool_start.trim() || DEFAULT_ROUTER_SCRIPT_CONFIG.dhcp_pool_start;
+    const poolEnd = routerScriptConfig.dhcp_pool_end.trim() || DEFAULT_ROUTER_SCRIPT_CONFIG.dhcp_pool_end;
+
+    const ipToInt = (ipAddress: string) => ipAddress.split(".").reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
+    const intToIp = (value: number) => [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join(".");
+    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+    const network = intToIp(ipToInt(lanIp) & mask);
+    const subnet = `${network}/${prefix}`;
+
     const script = [
       "# ==========================================",
       "# MikroTik Complete Hotspot Billing Setup",
-      `# Generated by ${APP_BRAND} Multi-ISP Cloud`,
+      `# Generated for ${activeTenant?.name || APP_BRAND}`,
       "# ==========================================",
       "",
       "# --- 1. Create Bridge for Hotspot ---",
-      "/interface bridge add name=\"" + iface + "\" comment=\"Hotspot Bridge\"",
+      "/interface bridge add name=\"" + iface + "\" comment=\"" + (activeTenant?.name || APP_BRAND) + " Hotspot Bridge\"",
+      ...bridgePorts.map((port) => `/interface bridge port add bridge="${iface}" interface="${port}"`),
       "",
       "# --- 2. IP Addressing ---",
-      "/ip address add address=" + ip + "/24 interface=\"" + iface + "\"",
+      "/ip address add address=" + lanCidr + " interface=\"" + iface + "\"",
       "",
       "# --- 3. DHCP Server ---",
       "/ip pool add name=hotspot-pool ranges=" + poolStart + "-" + poolEnd,
       "/ip dhcp-server add name=hotspot-dhcp interface=\"" + iface + "\" address-pool=hotspot-pool disabled=no",
-      "/ip dhcp-server network add address=" + network + "/24 gateway=" + ip + " dns-server=8.8.8.8,8.8.4.4",
+      "/ip dhcp-server network add address=" + subnet + " gateway=" + lanIp + " dns-server=" + dnsServers,
       "",
       "# --- 4. DNS ---",
-      "/ip dns set allow-remote-requests=yes",
+      "/ip dns set allow-remote-requests=yes servers=" + dnsServers,
       "",
       "# --- 5. NAT Masquerade ---",
-      "/ip firewall nat add chain=srcnat action=masquerade comment=\"Hotspot NAT\"",
+      "/ip firewall nat add chain=srcnat out-interface=\"" + wanInterface + "\" action=masquerade comment=\"Hotspot NAT\"",
       "",
       "# --- 6. RADIUS Server ---",
       "/radius add service=hotspot address=" + radiusIp + " secret=\"" + radiusSecret + "\" authentication-port=" + authPort + " accounting-port=" + acctPort + " timeout=3000ms",
       "/radius incoming set accept=yes port=3799",
       "",
       "# --- 7. Hotspot Profile ---",
-      "/ip hotspot profile add name=\"billing-profile\" hotspot-address=" + ip + " dns-name=\"" + dns + "\" \\",
+      "/ip hotspot profile add name=\"billing-profile\" hotspot-address=" + lanIp + " dns-name=\"" + dns + "\" \\",
       "    html-directory=hotspot login-by=http-chap,http-pap,cookie http-cookie-lifetime=1d \\",
       "    use-radius=yes radius-interim-update=00:05:00",
       "",
@@ -699,17 +775,18 @@ const Admin = () => {
       "/ip hotspot add name=\"billing-hotspot\" interface=\"" + iface + "\" profile=\"billing-profile\" disabled=no",
       "",
       "# --- 9. Walled Garden (allow billing portal and authentication bridge) ---",
-      "/ip hotspot walled-garden ip add dst-host=" + hostname + " action=accept comment=\"" + APP_BRAND + " Billing Portal\"",
-      "/ip hotspot walled-garden add dst-host=" + hostname + " action=allow comment=\"" + APP_BRAND + " Billing Portal\"",
-      "/ip hotspot walled-garden add dst-host=lovable.dev action=allow comment=\"Lovable Auth Bridge\"",
-      "/ip hotspot walled-garden add dst-host=*.lovable.dev action=allow comment=\"Lovable Auth Bridge\"",
-      "/ip hotspot walled-garden add dst-host=*.lovableproject.com action=allow comment=\"Lovable Project\"",
+      "/ip hotspot walled-garden ip add dst-host=" + portalHost + " action=accept comment=\"" + (activeTenant?.name || APP_BRAND) + " Portal\"",
+      "/ip hotspot walled-garden add dst-host=" + portalHost + " action=allow comment=\"" + (activeTenant?.name || APP_BRAND) + " Portal\"",
+      ...(assetHost !== portalHost ? [
+        "/ip hotspot walled-garden ip add dst-host=" + assetHost + " action=accept comment=\"Portal Shell Assets\"",
+        "/ip hotspot walled-garden add dst-host=" + assetHost + " action=allow comment=\"Portal Shell Assets\"",
+      ] : []),
       "/ip hotspot walled-garden add dst-host=*.supabase.co action=allow comment=\"Supabase Backend\"",
       "",
       "# --- 10. Firewall - Allow RADIUS Traffic ---",
       "/ip firewall filter add chain=input protocol=udp dst-port=3799 action=accept comment=\"Allow RADIUS CoA\"",
       "",
-      ":log info \"" + APP_BRAND + " hotspot configuration applied successfully\"",
+      ":log info \"" + (activeTenant?.name || APP_BRAND) + " hotspot configuration applied successfully\"",
     ].join("\n");
     const blob = new Blob([script], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -1380,6 +1457,49 @@ const Admin = () => {
                       <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Hotspot Interface</label>
                       <Input value={routerForm.hotspot_interface} onChange={e => setRouterForm({ ...routerForm, hotspot_interface: e.target.value })} className="font-mono bg-muted/50 text-sm" />
                     </div>
+                  </div>
+
+                  <div className="border-t border-border pt-4 mt-4">
+                    <h3 className="text-xs font-mono font-semibold text-foreground mb-3 flex items-center gap-2">
+                      <Network className="h-3.5 w-3.5 text-primary" /> Router Script Inputs
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">WAN Interface</label>
+                        <Input value={routerScriptConfig.wan_interface} onChange={e => setRouterScriptConfig({ ...routerScriptConfig, wan_interface: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">LAN CIDR</label>
+                        <Input value={routerScriptConfig.lan_cidr} onChange={e => setRouterScriptConfig({ ...routerScriptConfig, lan_cidr: e.target.value })} placeholder="10.10.0.1/24" className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">DHCP Pool Start</label>
+                        <Input value={routerScriptConfig.dhcp_pool_start} onChange={e => setRouterScriptConfig({ ...routerScriptConfig, dhcp_pool_start: e.target.value })} placeholder="10.10.0.10" className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">DHCP Pool End</label>
+                        <Input value={routerScriptConfig.dhcp_pool_end} onChange={e => setRouterScriptConfig({ ...routerScriptConfig, dhcp_pool_end: e.target.value })} placeholder="10.10.0.250" className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">DNS Servers</label>
+                        <Input value={routerScriptConfig.dns_servers} onChange={e => setRouterScriptConfig({ ...routerScriptConfig, dns_servers: e.target.value })} placeholder="8.8.8.8,1.1.1.1" className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Bridge Member Ports</label>
+                        <Input value={routerScriptConfig.bridge_ports} onChange={e => setRouterScriptConfig({ ...routerScriptConfig, bridge_ports: e.target.value })} placeholder="ether2,ether3,wlan1" className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Router API Username</label>
+                        <Input value={routerForm.api_username || ""} onChange={e => setRouterForm({ ...routerForm, api_username: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Router API Port</label>
+                        <Input value={String(routerForm.api_port || "8728")} onChange={e => setRouterForm({ ...routerForm, api_port: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-3">
+                      These fields are used to generate an ISP-specific `hotspot-setup.rsc` script with the correct LAN, DHCP, NAT, DNS, bridge, and portal allow-list values.
+                    </p>
                   </div>
                   
                   <div className="border-t border-border pt-4 mt-4">
