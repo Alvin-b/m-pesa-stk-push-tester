@@ -69,9 +69,9 @@ const AdminLogin = () => {
             .eq("role", "admin")
             .maybeSingle();
 
-          navigate(adminRole ? "/super-admin" : "/workspace");
+          navigate(adminRole ? "/super-admin" : "/admin");
         } else {
-          navigate("/workspace");
+          navigate("/admin");
         }
       }
     }
@@ -95,7 +95,7 @@ const AdminLogin = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold font-mono text-foreground tracking-wide uppercase">{APP_OPERATOR_CONSOLE}</h1>
-              <p className="text-sm text-muted-foreground">Create an ISP account or sign in to the ISP dashboard or super admin dashboard in {APP_PLATFORM_NAME}.</p>
+              <p className="text-sm text-muted-foreground">Use one secure login for both the ISP dashboard and the super admin command room in {APP_PLATFORM_NAME}.</p>
             </div>
           </div>
 

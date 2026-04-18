@@ -366,75 +366,57 @@ const Admin = () => {
   const expiredVoucherCount = vouchers.filter((voucher) => voucher.status === "expired" || voucher.status === "revoked").length;
   const activeSessions = sessions.filter(s => s.is_active && new Date(s.expires_at) > new Date());
   const totalOnlineUsers = activeSessions.length;
-  const routerViewCards = routerNodes.slice(0, 8).map((router, index) => {
-    const routerTotalBase = Math.max(1, Math.ceil(vouchers.length / Math.max(routerNodes.length, 1)));
-    const routerOnlineBase = Math.max(0, Math.ceil(totalOnlineUsers / Math.max(routerNodes.length, 1)));
-    const routerExpiredBase = Math.max(0, Math.ceil(expiredVoucherCount / Math.max(routerNodes.length, 1)));
-
-    return {
-      id: router.id,
-      name: router.name,
-      online: router.status === "offline" ? 0 : Math.max(0, routerOnlineBase + (index % 2 === 0 ? 1 : 0)),
-      active: Math.max(0, routerTotalBase + index),
-      expired: Math.max(0, routerExpiredBase + (index % 3)),
-    };
-  });
+  const routerViewCards = [
+    {
+      id: "tenant-summary",
+      name: activeTenant?.name || "ISP Summary",
+      online: routerSummary.online,
+      active: activeVoucherCount,
+      expired: expiredVoucherCount,
+    },
+  ];
   const dashboardCards = [
     {
       label: "Income Today",
       value: `Ksh. ${revenueStats.todayRev.toLocaleString()}`,
-      sub: "View Reports",
+      sub: `${revenueStats.todayCount} sale${revenueStats.todayCount === 1 ? "" : "s"} recorded today`,
       color: "from-[#3768ea] to-[#2d5ad1]",
       icon: <CreditCard className="h-9 w-9 text-white/20" />,
     },
     {
       label: "Income This Month",
       value: `Ksh. ${revenueStats.monthRev.toLocaleString()}`,
-      sub: "View Reports",
+      sub: `${revenueStats.monthCount} sale${revenueStats.monthCount === 1 ? "" : "s"} this month`,
       color: "from-[#13a36f] to-[#0f9a6a]",
       icon: <BarChart3 className="h-9 w-9 text-white/20" />,
     },
     {
       label: "Active/Expired",
       value: `${activeVoucherCount}/${expiredVoucherCount}`,
-      sub: "View All",
+      sub: "Voucher lifecycle right now",
       color: "from-[#ef9206] to-[#e07d00]",
       icon: <Users className="h-9 w-9 text-white/20" />,
     },
     {
-      label: "Total Users",
-      value: vouchers.length.toLocaleString(),
-      sub: "View All",
-      color: "from-[#f12928] to-[#e32222]",
-      icon: <Users className="h-9 w-9 text-white/20" />,
-    },
-    {
-      label: "Hotspot Online Users",
+      label: "Live Sessions",
       value: totalOnlineUsers.toLocaleString(),
-      sub: "View All",
+      sub: `${sessions.length.toLocaleString()} total session record${sessions.length === 1 ? "" : "s"}`,
       color: "from-[#1d9dc3] to-[#168aae]",
       icon: <Wifi className="h-9 w-9 text-white/20" />,
     },
     {
-      label: "PPPoE Online Users",
-      value: Math.max(0, totalOnlineUsers - routerSummary.warning).toLocaleString(),
-      sub: "View All",
+      label: "Routers Online",
+      value: routerSummary.online.toLocaleString(),
+      sub: `${routerNodes.length.toLocaleString()} router${routerNodes.length === 1 ? "" : "s"} registered`,
       color: "from-[#8a3ffc] to-[#7a2cf6]",
-      icon: <Network className="h-9 w-9 text-white/20" />,
-    },
-    {
-      label: "Static Online Users",
-      value: Math.max(0, routerSummary.online - routerSummary.offline).toLocaleString(),
-      sub: "View All",
-      color: "from-[#1ea39b] to-[#1a958e]",
       icon: <Radio className="h-9 w-9 text-white/20" />,
     },
     {
-      label: "Total Online Users",
-      value: totalOnlineUsers.toLocaleString(),
-      sub: "View All",
-      color: "from-[#ff6b00] to-[#f15a00]",
-      icon: <Users className="h-9 w-9 text-white/20" />,
+      label: "Routers Pending",
+      value: routerSummary.warning.toLocaleString(),
+      sub: `${routerSummary.offline.toLocaleString()} offline`,
+      color: "from-[#1ea39b] to-[#1a958e]",
+      icon: <Network className="h-9 w-9 text-white/20" />,
     },
   ];
 
@@ -869,7 +851,7 @@ const Admin = () => {
                         </div>
                         <div>{card.icon}</div>
                       </div>
-                      <div className="mt-5 border-t border-white/20 pt-3 text-sm text-white/90">{card.sub} {"->"}</div>
+                      <div className="mt-5 border-t border-white/20 pt-3 text-sm text-white/90">{card.sub}</div>
                     </CardContent>
                   </Card>
                 ))}

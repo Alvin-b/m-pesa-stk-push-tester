@@ -35,7 +35,7 @@ const HomeRoute = () => {
     return <Navigate to="/workspace/billing-lock" replace />;
   }
 
-  return <Navigate to="/workspace" replace />;
+  return <Navigate to="/admin" replace />;
 };
 
 const TenantAppRoute = ({ allowBillingRecovery = false }: { allowBillingRecovery?: boolean }) => {

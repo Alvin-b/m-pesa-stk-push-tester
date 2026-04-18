@@ -1,5 +1,4 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { APP_PORTAL_NAME } from "@/lib/brand";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "react-router-dom";
@@ -24,17 +23,6 @@ interface PlatformContextType {
 }
 
 const PlatformContext = createContext<PlatformContextType | undefined>(undefined);
-
-const LEGACY_TENANT: PlatformTenant = {
-  id: "legacy-fallback",
-  name: "BROADCOM Demo ISP",
-  slug: "legacy-isp",
-  billingStatus: "active",
-  monthlyBaseFee: 0,
-  perPurchaseFee: 0,
-  portalTitle: APP_PORTAL_NAME,
-  portalSubtitle: "Powered by BROADCOM multi-ISP cloud",
-};
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
   const { user, isAdmin, loading: authLoading } = useAuth();
@@ -134,34 +122,12 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const legacyQuery = await supabase
-        .from("tenants")
-        .select("id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle")
-        .eq("slug", "legacy-isp")
-        .maybeSingle();
-
-      const legacyTenant = legacyQuery.data as {
-        id: string;
-        name: string;
-        slug: string;
-        billing_status: PlatformTenant["billingStatus"];
-        monthly_base_fee: number | null;
-        per_purchase_fee: number | null;
-        portal_title: string | null;
-        portal_subtitle: string | null;
-      } | null;
-
-      if (legacyTenant) {
-        setActiveTenant(mapTenant(legacyTenant));
-        setTenantMembershipRole(isAdmin ? "owner" : null);
-      } else {
-        setActiveTenant(LEGACY_TENANT);
-        setTenantMembershipRole(isAdmin ? "owner" : null);
-      }
+      setActiveTenant(null);
+      setTenantMembershipRole(null);
     } catch (error) {
-      console.warn("Platform context falling back to legacy tenant:", error);
-      setActiveTenant(LEGACY_TENANT);
-      setTenantMembershipRole(isAdmin ? "owner" : null);
+      console.warn("Platform context failed to load tenant context:", error);
+      setActiveTenant(null);
+      setTenantMembershipRole(null);
     } finally {
       setLoading(false);
     }
