@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/lib/auth";
 import { APP_BRAND } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
@@ -68,6 +69,7 @@ const TenantWorkspace = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { activeTenant, loading: platformLoading } = usePlatform();
+  const { toast } = useToast();
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [liveInvoices, setLiveInvoices] = useState<Array<{
     id: string;
@@ -307,7 +309,7 @@ const TenantWorkspace = () => {
     setSavingStation(true);
     setStationError("");
 
-    const { error } = await supabase.from("routers").insert([
+    const { data: router, error } = await supabase.from("routers").insert([
       {
         tenant_id: activeTenant.id,
         name: newStation.name.trim(),
@@ -315,12 +317,29 @@ const TenantWorkspace = () => {
         host: newStation.host.trim() || null,
         provisioning_status: "pending",
       },
-    ]);
+    ]).select("id").single();
 
     if (error) {
       setStationError(error.message || "Unable to save station");
       setSavingStation(false);
       return;
+    }
+
+    if (newStation.host.trim() && router?.id) {
+      const { error: syncError } = await supabase.functions.invoke("sync-radius-nas", {
+        body: {
+          tenantId: activeTenant.id,
+          routerId: router.id,
+        },
+      });
+
+      if (syncError) {
+        console.error("sync-radius-nas failed:", syncError);
+        toast({
+          title: "Station saved",
+          description: "The station was saved, but its RADIUS NAS mapping still needs attention until the sync function is deployed.",
+        });
+      }
     }
 
     setNewStation({ name: "", siteName: "", host: "" });
@@ -452,7 +471,7 @@ const TenantWorkspace = () => {
                       className="border-white/10 bg-white/5 text-white placeholder:text-slate-500"
                     />
                     <Input
-                      placeholder="Router IP or DNS"
+                      placeholder="Router public IP / DNS (NAS-IP)"
                       value={newStation.host}
                       onChange={(event) => setNewStation((current) => ({ ...current, host: event.target.value }))}
                       className="border-white/10 bg-white/5 text-white placeholder:text-slate-500"

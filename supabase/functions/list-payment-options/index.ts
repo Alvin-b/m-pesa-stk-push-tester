@@ -21,6 +21,23 @@ serve(async (req) => {
     const options: Array<Record<string, unknown>> = [];
 
     if (!tenantId) {
+      const legacyMpesaReady = !!(
+        Deno.env.get("MPESA_CONSUMER_KEY") &&
+        Deno.env.get("MPESA_CONSUMER_SECRET") &&
+        Deno.env.get("MPESA_PASSKEY") &&
+        Deno.env.get("MPESA_SHORTCODE")
+      );
+
+      if (legacyMpesaReady) {
+        options.push({
+          providerId: "mpesa",
+          displayName: "M-Pesa",
+          flowType: "stk_push",
+          requiresPhone: true,
+          requiresEmail: false,
+        });
+      }
+
       return new Response(JSON.stringify({ options }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

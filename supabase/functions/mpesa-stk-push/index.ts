@@ -26,34 +26,43 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const sb = createClient(supabaseUrl, supabaseKey);
 
-    if (!tenantId) {
-      return new Response(JSON.stringify({ error: 'Tenant payment configuration is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    const useLegacyGateway = !tenantId;
+    let gatewayId: string | null = null;
+    let consumerKey = '';
+    let consumerSecret = '';
+    let passkey = '';
+    let shortcode = '';
+
+    if (useLegacyGateway) {
+      consumerKey = Deno.env.get('MPESA_CONSUMER_KEY')?.trim() || '';
+      consumerSecret = Deno.env.get('MPESA_CONSUMER_SECRET')?.trim() || '';
+      passkey = Deno.env.get('MPESA_PASSKEY')?.trim() || '';
+      shortcode = Deno.env.get('MPESA_SHORTCODE')?.trim() || '';
+    } else {
+      const { data: gateway } = await sb
+        .from('tenant_payment_gateways')
+        .select('id, config, status')
+        .eq('tenant_id', tenantId)
+        .eq('provider_id', 'mpesa')
+        .in('status', ['test', 'active'])
+        .maybeSingle();
+
+      const gatewayConfig = gateway?.config && typeof gateway.config === 'object'
+        ? gateway.config as Record<string, unknown>
+        : {};
+
+      gatewayId = gateway?.id || null;
+      consumerKey = typeof gatewayConfig.consumer_key === 'string' ? gatewayConfig.consumer_key.trim() : '';
+      consumerSecret = typeof gatewayConfig.consumer_secret === 'string' ? gatewayConfig.consumer_secret.trim() : '';
+      passkey = typeof gatewayConfig.passkey === 'string' ? gatewayConfig.passkey.trim() : '';
+      shortcode = typeof gatewayConfig.shortcode === 'string' ? gatewayConfig.shortcode.trim() : '';
     }
 
-    const { data: gateway } = await sb
-      .from('tenant_payment_gateways')
-      .select('id, config, status')
-      .eq('tenant_id', tenantId)
-      .eq('provider_id', 'mpesa')
-      .in('status', ['test', 'active'])
-      .maybeSingle();
-
-    const gatewayConfig = gateway?.config && typeof gateway.config === 'object'
-      ? gateway.config as Record<string, unknown>
-      : {};
-
-    const consumerKey = typeof gatewayConfig.consumer_key === 'string' ? gatewayConfig.consumer_key.trim() : '';
-    const consumerSecret = typeof gatewayConfig.consumer_secret === 'string' ? gatewayConfig.consumer_secret.trim() : '';
-    const passkey = typeof gatewayConfig.passkey === 'string' ? gatewayConfig.passkey.trim() : '';
-    const shortcode = typeof gatewayConfig.shortcode === 'string' ? gatewayConfig.shortcode.trim() : '';
-    const partyB = typeof gatewayConfig.shortcode === 'string' ? gatewayConfig.shortcode.trim() : '';
+    const partyB = shortcode;
     const callbackUrl = `${supabaseUrl}/functions/v1/confirm-payment`;
 
     if (!consumerKey || !consumerSecret || !passkey || !shortcode) {
-      return new Response(JSON.stringify({ error: 'M-Pesa is not configured for this ISP' }), {
+      return new Response(JSON.stringify({ error: useLegacyGateway ? 'M-Pesa credentials are not configured' : 'M-Pesa is not configured for this ISP' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -139,7 +148,7 @@ serve(async (req) => {
     if (packageId) {
       let packageQuery = sb
         .from('packages')
-        .select('duration_minutes, tenant_id')
+        .select(tenantId ? 'duration_minutes, tenant_id' : 'duration_minutes')
         .eq('id', packageId);
 
       if (tenantId) {
@@ -155,25 +164,27 @@ serve(async (req) => {
       const code = await generateUniqueVoucherCode(sb);
       const internalReference = crypto.randomUUID();
 
-      const { data: voucher, error: voucherError } = await sb.from('vouchers').insert({
+      const voucherInsert = await sb.from('vouchers').insert({
         code,
         package_id: packageId,
         phone_number: formattedPhone,
         checkout_request_id: stkData.CheckoutRequestID,
         status: 'pending',
         session_timeout: sessionTimeout,
-        tenant_id: tenantId || pkg.tenant_id || null,
-      }).select('id, tenant_id').single();
+        ...(!useLegacyGateway ? { tenant_id: tenantId || pkg.tenant_id || null } : {}),
+      }).select(useLegacyGateway ? 'id' : 'id, tenant_id').single();
+
+      const { data: voucher, error: voucherError } = voucherInsert;
 
       if (voucherError) {
         throw voucherError;
       }
 
       const transactionTenantId = tenantId || pkg.tenant_id || voucher?.tenant_id || null;
-      if (transactionTenantId) {
+      if (!useLegacyGateway && transactionTenantId) {
         const { error: paymentError } = await sb.from('payment_transactions').insert({
           tenant_id: transactionTenantId,
-          gateway_id: gateway?.id ?? null,
+          gateway_id: gatewayId,
           provider_id: 'mpesa',
           package_id: packageId,
           voucher_id: voucher?.id ?? null,

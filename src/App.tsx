@@ -14,6 +14,7 @@ import PlatformAdmin from "./pages/PlatformAdmin";
 import BillingLockPreview from "./pages/BillingLockPreview";
 import TenantBilling from "./pages/TenantBilling";
 import { useAuth } from "@/lib/auth";
+import { LEGACY_TENANT_ID } from "@/lib/backend";
 import LandingPage from "./pages/LandingPage";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,9 @@ const HomeRoute = () => {
   }
 
   if (isAdmin) {
+    if (activeTenant?.id === LEGACY_TENANT_ID) {
+      return <Navigate to="/admin" replace />;
+    }
     return <Navigate to="/super-admin" replace />;
   }
 

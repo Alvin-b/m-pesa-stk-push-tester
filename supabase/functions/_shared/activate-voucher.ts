@@ -1,9 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const formatExpiration = (date: Date) =>
-  `${months[date.getMonth()]} ${String(date.getDate()).padStart(2, "0")} ${date.getFullYear()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
+import { upsertRadiusCredentials } from "./radius.ts";
 
 interface VoucherPackage {
   duration_minutes?: number | null;
@@ -16,6 +12,7 @@ interface VoucherRow {
   status: string;
   session_timeout?: number | null;
   expires_at?: string | null;
+  tenant_id?: string | null;
   packages?: VoucherPackage | VoucherPackage[] | null;
 }
 
@@ -37,8 +34,6 @@ export async function activateVoucher(
     (packageData?.duration_minutes ? packageData.duration_minutes * 60 : 3600);
   const speedLimit = packageData?.speed_limit || null;
   const expiresAt = new Date(Date.now() + durationSeconds * 1000);
-  const expirationStr = formatExpiration(expiresAt);
-
   await supabase.from("vouchers").update({
     status: "active",
     mpesa_receipt: mpesaReceipt || null,
@@ -46,29 +41,14 @@ export async function activateVoucher(
     expires_at: expiresAt.toISOString(),
   }).eq("id", voucher.id);
 
-  const { data: existingRadcheck } = await supabase
-    .from("radcheck")
-    .select("id")
-    .eq("username", voucher.code)
-    .maybeSingle();
-
-  if (!existingRadcheck) {
-    await supabase.from("radcheck").insert([
-      { username: voucher.code, attribute: "Cleartext-Password", op: ":=", value: voucher.code },
-      { username: voucher.code, attribute: "Session-Timeout", op: ":=", value: String(durationSeconds) },
-      { username: voucher.code, attribute: "Expiration", op: ":=", value: expirationStr },
-    ]);
-
-    const radreplyRows: { username: string; attribute: string; op: string; value: string }[] = [
-      { username: voucher.code, attribute: "Session-Timeout", op: "=", value: String(durationSeconds) },
-    ];
-
-    if (speedLimit) {
-      radreplyRows.push({ username: voucher.code, attribute: "Mikrotik-Rate-Limit", op: "=", value: speedLimit });
-    }
-
-    await supabase.from("radreply").insert(radreplyRows);
-  }
+  await upsertRadiusCredentials(supabase, {
+    tenantId: voucher.tenant_id ?? null,
+    username: voucher.code,
+    password: voucher.code,
+    sessionTimeout: durationSeconds,
+    expiresAt,
+    speedLimit,
+  });
 
   return {
     code: voucher.code,

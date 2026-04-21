@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
+import { getBackendCapabilities } from "@/lib/backend";
 import { APP_BRAND, APP_PORTAL_NAME } from "@/lib/brand";
 import {
   Wifi, Loader2, CheckCircle2, XCircle, Zap, KeyRound,
@@ -29,6 +30,16 @@ interface PaymentOption {
   requiresPhone: boolean;
   requiresEmail: boolean;
 }
+
+const LEGACY_PAYMENT_OPTIONS: PaymentOption[] = [
+  {
+    providerId: "mpesa",
+    displayName: "M-Pesa",
+    flowType: "stk_push",
+    requiresPhone: true,
+    requiresEmail: false,
+  },
+];
 
 const PROCESSING_CODES = new Set([4999, "4999"]);
 
@@ -355,64 +366,85 @@ const Portal = () => {
     supabase.functions.invoke("cleanup-expired", { body: {} }).catch(() => {});
 
     void (async () => {
+      const capabilities = await getBackendCapabilities();
+      const multitenantEnabled = capabilities.multitenant;
       let resolvedTenantId: string | null = null;
       let resolvedTenantName = APP_PORTAL_NAME;
 
-      const { data: tenant } = await supabase
-        .from("tenants")
-        .select("id, name, portal_title")
-        .eq("slug", scopedTenantSlug)
-        .maybeSingle();
+      if (multitenantEnabled) {
+        const { data: tenant, error: tenantError } = await supabase
+          .from("tenants")
+          .select("id, name, portal_title")
+          .eq("slug", scopedTenantSlug)
+          .maybeSingle();
 
-      const resolvedTenant = tenant as { id: string; name: string; portal_title?: string | null } | null;
-      if (resolvedTenant) {
-        resolvedTenantId = resolvedTenant.id;
-        resolvedTenantName = resolvedTenant.portal_title || resolvedTenant.name || APP_PORTAL_NAME;
-      }
+        if (tenantError) {
+          console.error("Failed to resolve tenant portal:", tenantError);
+        }
 
-      if (!resolvedTenantId) {
-        setTenantResolved(false);
+        const resolvedTenant = tenant as { id: string; name: string; portal_title?: string | null } | null;
+        if (resolvedTenant) {
+          resolvedTenantId = resolvedTenant.id;
+          resolvedTenantName = resolvedTenant.portal_title || resolvedTenant.name || APP_PORTAL_NAME;
+        }
+
+        if (!resolvedTenantId) {
+          setTenantResolved(false);
+          setTenantPortalId(null);
+          setTenantName(tenantSlug ? "Portal Not Found" : APP_PORTAL_NAME);
+          setPackages([]);
+          setPaymentOptions([]);
+          setError(
+            tenantSlug
+              ? "This ISP portal could not be found. Please use the exact portal link shared by the ISP."
+              : "Choose a valid ISP portal link to browse packages and pay."
+          );
+          setStep("packages");
+          return;
+        }
+
+        setTenantResolved(true);
+        setTenantPortalId(resolvedTenantId);
+        setTenantName(resolvedTenantName);
+        setError("");
+
+        const { data: paymentOptionData } = await supabase.functions.invoke("list-payment-options", {
+          body: { tenantId: resolvedTenantId },
+        });
+        const resolvedPaymentOptions = (paymentOptionData?.options as PaymentOption[] | undefined) || [];
+        setPaymentOptions(resolvedPaymentOptions);
+        if (resolvedPaymentOptions.length > 0) {
+          setSelectedProvider(resolvedPaymentOptions[0].providerId);
+        }
+      } else {
+        setTenantResolved(true);
         setTenantPortalId(null);
-        setTenantName(tenantSlug ? "Portal Not Found" : APP_PORTAL_NAME);
-        setPackages([]);
-        setPaymentOptions([]);
-        setError(
-          tenantSlug
-            ? "This ISP portal could not be found. Please use the exact portal link shared by the ISP."
-            : "Choose a valid ISP portal link to browse packages and pay."
-        );
-        setStep("packages");
-        return;
-      }
-
-      setTenantResolved(true);
-      setTenantPortalId(resolvedTenantId);
-      setTenantName(resolvedTenantName);
-
-      const { data: paymentOptionData } = await supabase.functions.invoke("list-payment-options", {
-        body: { tenantId: resolvedTenantId },
-      });
-      const resolvedPaymentOptions = (paymentOptionData?.options as PaymentOption[] | undefined) || [];
-      setPaymentOptions(resolvedPaymentOptions);
-      if (resolvedPaymentOptions.length > 0) {
-        setSelectedProvider(resolvedPaymentOptions[0].providerId);
+        setTenantName(APP_PORTAL_NAME);
+        setError("");
+        setPaymentOptions(LEGACY_PAYMENT_OPTIONS);
+        setSelectedProvider("mpesa");
       }
 
       let packagesQuery = supabase
         .from("packages")
         .select("*")
         .eq("is_active", true)
-        .eq("tenant_id", resolvedTenantId)
         .order("price");
+      if (multitenantEnabled && resolvedTenantId) {
+        packagesQuery = packagesQuery.eq("tenant_id", resolvedTenantId);
+      }
 
-      const { data } = await packagesQuery;
+      const { data, error: packageError } = await packagesQuery;
+      if (packageError) {
+        console.error("Failed to load portal packages:", packageError);
+      }
       setPackages((data as Package[]) || []);
 
       const queryParams = new URLSearchParams(window.location.search);
       const paystackReference = queryParams.get("reference") || queryParams.get("trxref");
       const paystackStatus = queryParams.get("status");
 
-      if (paystackReference && (!paystackStatus || paystackStatus === "success")) {
+      if (multitenantEnabled && paystackReference && (!paystackStatus || paystackStatus === "success")) {
         setSelectedProvider("paystack");
         setStep("waiting");
         setLoading(true);

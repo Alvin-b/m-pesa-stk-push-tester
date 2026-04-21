@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { LEGACY_TENANT_ID } from "@/lib/backend";
 import { APP_BRAND, APP_PLATFORM_NAME } from "@/lib/brand";
 import { usePlatform } from "@/lib/platform";
 import {
@@ -61,7 +62,7 @@ interface PlatformTenantRow {
 const PlatformAdmin = () => {
   const navigate = useNavigate();
   const { user, isAdmin, loading: authLoading } = useAuth();
-  const { loading: platformLoading } = usePlatform();
+  const { activeTenant, loading: platformLoading } = usePlatform();
   const [tenantRows, setTenantRows] = useState<PlatformTenantRow[]>([]);
   const [metricRows, setMetricRows] = useState([
     { label: "Live ISPs", value: "0", change: "Tenant records in the platform", tone: "positive" as const },
@@ -271,6 +272,32 @@ const PlatformAdmin = () => {
     void loadPlatformAdmin();
   }, [user, isAdmin]);
 
+  const [generatingInvoices, setGeneratingInvoices] = useState(false);
+
+  const generateInvoices = async () => {
+    setGeneratingInvoices(true);
+    try {
+      const res = await supabase.functions.invoke("generate-tenant-invoices", {
+        body: { monthOffset: 0 },
+      });
+      if (res.error) throw new Error(res.error.message || "Failed to generate invoices");
+      
+      toast({
+        title: "Invoices generated",
+        description: `Successfully processed billing for ${res.data?.results?.length || 0} active tenants.`,
+      });
+      fetchData();
+    } catch (err) {
+      toast({
+        title: "Generation failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingInvoices(false);
+    }
+  };
+
   const createTenant = async () => {
     if (!newTenant.name.trim() || !newTenant.slug.trim()) {
       setTenantError("Tenant name and slug are required.");
@@ -304,6 +331,10 @@ const PlatformAdmin = () => {
 
   if (!authLoading && !platformLoading && (!user || !isAdmin)) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!authLoading && !platformLoading && activeTenant?.id === LEGACY_TENANT_ID) {
+    return <Navigate to="/admin" replace />;
   }
 
   if (authLoading || platformLoading) {
@@ -520,7 +551,12 @@ const PlatformAdmin = () => {
                   </div>
                   <div className="rounded-2xl bg-[#0d1729] p-4">
                     <CreditCard className="h-4 w-4 text-amber-200" />
-                    <p className="mt-3 font-medium text-white">Billing enforcements</p>
+                    <div className="flex items-center justify-between">
+                      <p className="mt-3 font-medium text-white">Billing enforcements</p>
+                      <Button size="sm" variant="outline" className="mt-2 h-8 border-amber-500/20 bg-amber-500/10 text-xs text-amber-300 hover:bg-amber-500/20 hover:text-amber-200" onClick={generateInvoices} disabled={generatingInvoices}>
+                        {generatingInvoices ? "Generating..." : "Generate Drafts"}
+                      </Button>
+                    </div>
                     <p className="mt-1 text-sm text-slate-400">Two-invoice threshold will hard-lock tenant admin access.</p>
                   </div>
                   <div className="rounded-2xl bg-[#0d1729] p-4">

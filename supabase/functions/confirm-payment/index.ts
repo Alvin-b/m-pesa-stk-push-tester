@@ -13,7 +13,48 @@ serve(async (req) => {
   }
 
   try {
-    const { checkoutRequestId, mpesaReceipt, tenantId } = await req.json();
+    const payload = await req.json();
+    let checkoutRequestId = payload.checkoutRequestId;
+    let mpesaReceipt = payload.mpesaReceipt;
+    const tenantId = payload.tenantId;
+
+    // Handle M-Pesa STK Push webhook payload format
+    if (payload.Body && payload.Body.stkCallback) {
+      const stkCallback = payload.Body.stkCallback;
+      checkoutRequestId = stkCallback.CheckoutRequestID;
+      
+      if (stkCallback.ResultCode === 0 && stkCallback.CallbackMetadata && stkCallback.CallbackMetadata.Item) {
+        const receiptItem = stkCallback.CallbackMetadata.Item.find(
+          (item: { Name: string; Value: string | number }) => item.Name === 'MpesaReceiptNumber'
+        );
+        if (receiptItem) mpesaReceipt = receiptItem.Value;
+      } else {
+        // Payment failed or was cancelled according to M-Pesa callback
+        console.log(`STK Push failed for CheckoutRequestID ${checkoutRequestId}, ResultCode: ${stkCallback.ResultCode}`);
+        
+        // Find voucher to fail it
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const sb = createClient(supabaseUrl, supabaseKey);
+        
+        if (checkoutRequestId) {
+          await sb.from('vouchers')
+            .update({ status: 'failed' })
+            .eq('checkout_request_id', checkoutRequestId)
+            .eq('status', 'pending');
+            
+          await sb.from('payment_transactions')
+            .update({ status: 'failed', metadata: { ...payload, reason: stkCallback.ResultDesc } })
+            .eq('provider_checkout_id', checkoutRequestId)
+            .eq('status', 'processing');
+        }
+
+        return new Response(JSON.stringify({ success: true, message: 'Failure callback received' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     if (!checkoutRequestId) {
       return new Response(JSON.stringify({ error: 'checkoutRequestId is required' }), {
@@ -68,21 +109,26 @@ serve(async (req) => {
     const activation = await activateVoucher(sb, voucher, mpesaReceipt || null);
     const code = activation.code;
 
-    await sb
-      .from('payment_transactions')
-      .update({
-        voucher_id: voucher.id,
-        provider_reference: mpesaReceipt || null,
-        status: 'paid',
-        paid_at: new Date().toISOString(),
-        metadata: {
-          checkout_request_id: checkoutRequestId,
-          voucher_code: code,
-          activated_via: 'confirm-payment',
-        },
-      })
-      .eq('provider_id', 'mpesa')
-      .eq('provider_checkout_id', checkoutRequestId);
+    // Use tenantId from payload or voucher
+    const effectiveTenantId = tenantId || voucher.tenant_id;
+
+    if (effectiveTenantId) {
+      await sb
+        .from('payment_transactions')
+        .update({
+          voucher_id: voucher.id,
+          provider_reference: mpesaReceipt || null,
+          status: 'paid',
+          paid_at: new Date().toISOString(),
+          metadata: {
+            checkout_request_id: checkoutRequestId,
+            voucher_code: code,
+            activated_via: 'confirm-payment',
+          },
+        })
+        .eq('provider_id', 'mpesa')
+        .eq('provider_checkout_id', checkoutRequestId);
+    }
 
     console.log(`Voucher ${code} activated for checkout ${checkoutRequestId}`);
 

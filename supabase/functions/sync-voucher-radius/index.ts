@@ -1,15 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clearRadiusCredentials, upsertRadiusCredentials } from "../_shared/radius.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const formatExpiration = (date: Date) =>
-  `${months[date.getMonth()]} ${String(date.getDate()).padStart(2, "0")} ${date.getFullYear()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -62,8 +58,7 @@ serve(async (req) => {
     const expiresAt = new Date(voucher.expires_at);
     if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
       await sb.from("vouchers").update({ status: "expired" }).eq("id", voucher.id);
-      await sb.from("radcheck").delete().eq("username", voucher.code);
-      await sb.from("radreply").delete().eq("username", voucher.code);
+      await clearRadiusCredentials(sb, { tenantId, username: voucher.code });
 
       return new Response(JSON.stringify({ error: "Voucher has expired" }), {
         status: 400,
@@ -77,22 +72,14 @@ serve(async (req) => {
         ? voucher.packages.speed_limit as string | null
         : null;
 
-    await sb.from("radcheck").delete().eq("username", voucher.code);
-    await sb.from("radreply").delete().eq("username", voucher.code);
-
-    await sb.from("radcheck").insert([
-      { username: voucher.code, attribute: "Cleartext-Password", op: ":=", value: voucher.code },
-      { username: voucher.code, attribute: "Session-Timeout", op: ":=", value: String(remainingSeconds) },
-      { username: voucher.code, attribute: "Expiration", op: ":=", value: formatExpiration(expiresAt) },
-    ]);
-
-    const radreplyRows: { username: string; attribute: string; op: string; value: string }[] = [
-      { username: voucher.code, attribute: "Session-Timeout", op: "=", value: String(remainingSeconds) },
-    ];
-    if (speedLimit) {
-      radreplyRows.push({ username: voucher.code, attribute: "Mikrotik-Rate-Limit", op: "=", value: speedLimit });
-    }
-    await sb.from("radreply").insert(radreplyRows);
+    await upsertRadiusCredentials(sb, {
+      tenantId,
+      username: voucher.code,
+      password: voucher.code,
+      sessionTimeout: remainingSeconds,
+      expiresAt,
+      speedLimit,
+    });
 
     return new Response(JSON.stringify({
       success: true,

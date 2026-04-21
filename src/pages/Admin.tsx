@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo } from "react";
 import networkBg from "@/assets/network-bg.png";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { LEGACY_TENANT_ID } from "@/lib/backend";
 import { APP_BRAND } from "@/lib/brand";
+import { generateRadiusSecret, isPlaceholderRadiusSecret } from "@/lib/radius";
 import { usePlatform } from "@/lib/platform";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { useToast } from "@/components/ui/use-toast";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   Users, Package, Settings, LogOut, Wifi, Key, Plus, Trash2, Download,
@@ -126,9 +129,18 @@ const DEFAULT_ROUTER_SCRIPT_CONFIG: RouterScriptConfig = {
   bridge_ports: "",
 };
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
+};
+
 const Admin = () => {
   const { user, isAdmin, loading: authLoading, signOut } = useAuth();
   const { activeTenant, tenantMembershipRole, loading: platformLoading } = usePlatform();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
@@ -146,7 +158,7 @@ const Admin = () => {
 
   const [newPkg, setNewPkg] = useState({ name: "", description: "", duration_value: 1, duration_unit: "hours" as DurationUnit, price: 20, speed_limit: "", device_limit: 1 });
   const [savingPkg, setSavingPkg] = useState(false);
-  const [routerForm, setRouterForm] = useState({ 
+  const [routerForm, setRouterForm] = useState(() => ({ 
     router_name: "Main Router", 
     router_ip: "10.10.0.1", 
     dns_name: "wifi.local", 
@@ -155,10 +167,10 @@ const Admin = () => {
     api_password: "",
     api_port: "8728",
     radius_server_ip: "207.126.167.78",
-    radius_secret: "mikrotik_radius_secret",
+    radius_secret: generateRadiusSecret(),
     radius_auth_port: 1812,
     radius_acct_port: 1813
-  });
+  }));
   const [routerScriptConfig, setRouterScriptConfig] = useState<RouterScriptConfig>(DEFAULT_ROUTER_SCRIPT_CONFIG);
   const [savingRouter, setSavingRouter] = useState(false);
   const [paystackGateway, setPaystackGateway] = useState<PaymentGatewayRow | null>(null);
@@ -186,6 +198,8 @@ const Admin = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const canAccessAdmin = isAdmin || !!tenantMembershipRole;
+  const hasTenantContext = !!activeTenant?.id;
+  const isLegacyTenantContext = activeTenant?.id === LEGACY_TENANT_ID;
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -234,11 +248,11 @@ const Admin = () => {
     }
   }, [requestedSection]);
 
-  const hasScopedTenant = !!activeTenant?.id && activeTenant.id !== "legacy-fallback";
+  const hasScopedTenant = hasTenantContext && !isLegacyTenantContext;
 
   const loadData = async () => {
     setLoadingData(true);
-    if (!hasScopedTenant) {
+    if (!hasTenantContext) {
       setVouchers([]);
       setPackages([]);
       setSessions([]);
@@ -267,46 +281,65 @@ const Admin = () => {
     let vouchersQuery = supabase
       .from("vouchers")
       .select("*, packages(name, duration_minutes, price)")
-      .eq("tenant_id", activeTenant.id)
       .order("created_at", { ascending: false })
       .limit(500);
+    if (hasScopedTenant && activeTenant?.id) {
+      vouchersQuery = vouchersQuery.eq("tenant_id", activeTenant.id);
+    }
 
     let packagesQuery = supabase
       .from("packages")
       .select("*")
-      .eq("tenant_id", activeTenant.id)
       .order("price");
+    if (hasScopedTenant && activeTenant?.id) {
+      packagesQuery = packagesQuery.eq("tenant_id", activeTenant.id);
+    }
 
     let sessionsQuery = supabase
       .from("sessions")
       .select("*, vouchers(code, phone_number, packages(name))")
-      .eq("tenant_id", activeTenant.id)
       .order("started_at", { ascending: false })
       .limit(200);
+    if (hasScopedTenant && activeTenant?.id) {
+      sessionsQuery = sessionsQuery.eq("tenant_id", activeTenant.id);
+    }
 
-    let routerSettingsQuery = supabase
-      .from("router_settings")
-      .eq("tenant_id", activeTenant.id)
-      .select("*")
-      .limit(1);
-    let routersQuery = supabase
-      .from("routers")
-      .select("id, name, site_name, host, provisioning_status, last_seen_at, last_error")
-      .eq("tenant_id", activeTenant.id)
-      .order("name");
-    let gatewayQuery = supabase
-      .from("tenant_payment_gateways")
-      .select("id, provider_id, status, display_name, config, public_config")
-      .eq("tenant_id", activeTenant.id);
+    let routerSettingsQuery = supabase.from("router_settings").select("*").limit(1);
+    if (hasScopedTenant && activeTenant?.id) {
+      routerSettingsQuery = routerSettingsQuery.eq("tenant_id", activeTenant.id);
+    }
 
     const [vRes, pRes, sRes, rRes, routerRes, gRes] = await Promise.all([
       vouchersQuery,
       packagesQuery,
       sessionsQuery,
       routerSettingsQuery.maybeSingle(),
-      routersQuery,
-      gatewayQuery,
+      hasScopedTenant && activeTenant?.id
+        ? supabase
+            .from("routers")
+            .select("id, name, site_name, host, provisioning_status, last_seen_at, last_error")
+            .eq("tenant_id", activeTenant.id)
+            .order("name")
+        : Promise.resolve({ data: [], error: null }),
+      hasScopedTenant && activeTenant?.id
+        ? supabase
+            .from("tenant_payment_gateways")
+            .select("id, provider_id, status, display_name, config, public_config")
+            .eq("tenant_id", activeTenant.id)
+        : Promise.resolve({ data: [], error: null }),
     ]);
+
+    if (vRes.error || pRes.error || sRes.error || rRes.error || ("error" in routerRes && routerRes.error) || ("error" in gRes && gRes.error)) {
+      console.error("Admin data load failed:", {
+        vouchers: vRes.error,
+        packages: pRes.error,
+        sessions: sRes.error,
+        routerSettings: rRes.error,
+        routers: "error" in routerRes ? routerRes.error : null,
+        gateways: "error" in gRes ? gRes.error : null,
+      });
+    }
+
     if (vRes.data) setVouchers(vRes.data as unknown as VoucherRow[]);
     if (pRes.data) setPackages(pRes.data as PackageRow[]);
     if (sRes.data) setSessions(sRes.data as unknown as SessionRow[]);
@@ -322,7 +355,7 @@ const Admin = () => {
         api_password: rRes.data.api_password || "",
         api_port: String(rRes.data.api_port || "8728"),
         radius_server_ip: rRes.data.radius_server_ip || "",
-        radius_secret: rRes.data.radius_secret || "",
+        radius_secret: !isPlaceholderRadiusSecret(rRes.data.radius_secret) ? (rRes.data.radius_secret || "") : generateRadiusSecret(),
         radius_auth_port: rRes.data.radius_auth_port || 1812,
         radius_acct_port: rRes.data.radius_acct_port || 1813,
       });
@@ -331,7 +364,7 @@ const Admin = () => {
         lan_cidr: rRes.data.router_ip ? `${rRes.data.router_ip}/24` : current.lan_cidr,
       }));
     }
-    const gatewayRows = (gRes.data as unknown as PaymentGatewayRow[] | null) ?? [];
+    const gatewayRows = hasScopedTenant ? ((gRes.data as unknown as PaymentGatewayRow[] | null) ?? []) : [];
     const paystackGatewayRow = gatewayRows.find((gateway) => gateway.provider_id === "paystack") ?? null;
     const mpesaGatewayRow = gatewayRows.find((gateway) => gateway.provider_id === "mpesa") ?? null;
 
@@ -531,20 +564,48 @@ const Admin = () => {
   ];
 
   const addPackage = async () => {
+    if (!hasTenantContext) {
+      toast({
+        title: "No ISP workspace selected",
+        description: "Sign in again or open the dashboard from a tenant workspace before adding packages.",
+      });
+      return;
+    }
+
     setSavingPkg(true);
-    const durationMinutes = newPkg.duration_value * DURATION_UNIT_MINUTES[newPkg.duration_unit];
-    await supabase.from("packages").insert([{
-      name: newPkg.name,
-      description: newPkg.description || null,
-      duration_minutes: durationMinutes,
-      price: newPkg.price,
-      speed_limit: newPkg.speed_limit || null,
-      device_limit: newPkg.device_limit,
-      ...(hasScopedTenant && activeTenant?.id ? { tenant_id: activeTenant.id } : {}),
-    }]);
-    setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "", device_limit: 1 });
-    setSavingPkg(false);
-    loadData();
+
+    try {
+      const durationMinutes = newPkg.duration_value * DURATION_UNIT_MINUTES[newPkg.duration_unit];
+      const { error } = await supabase.from("packages").insert([{
+        name: newPkg.name.trim(),
+        description: newPkg.description.trim() || null,
+        duration_minutes: durationMinutes,
+        price: newPkg.price,
+        speed_limit: newPkg.speed_limit.trim() || null,
+        device_limit: newPkg.device_limit,
+        ...(hasScopedTenant && activeTenant?.id ? { tenant_id: activeTenant.id } : {}),
+      }]);
+
+      if (error) {
+        throw error;
+      }
+
+      setNewPkg({ name: "", description: "", duration_value: 1, duration_unit: "hours", price: 20, speed_limit: "", device_limit: 1 });
+      await loadData();
+      toast({
+        title: "Package created",
+        description: "Your portal package is now available in the dashboard.",
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Couldn't create package",
+        description: getErrorMessage(error, "The package could not be saved."),
+        variant: "destructive",
+      });
+    } finally {
+      setSavingPkg(false);
+    }
   };
 
   const deletePackage = async (id: string) => {
@@ -552,8 +613,16 @@ const Admin = () => {
     if (hasScopedTenant && activeTenant?.id) {
       query = query.eq("tenant_id", activeTenant.id);
     }
-    await query;
-    loadData();
+    const { error } = await query;
+    if (error) {
+      toast({
+        title: "Couldn't archive package",
+        description: getErrorMessage(error, "The package could not be updated."),
+        variant: "destructive",
+      });
+      return;
+    }
+    await loadData();
   };
 
   const generateVoucher = async () => {
@@ -562,13 +631,18 @@ const Admin = () => {
     setGeneratedCode("");
     try {
       const { data, error } = await supabase.functions.invoke("generate-voucher", {
-        body: { packageId: genPkgId, phoneNumber: genPhone || undefined, tenantId: activeTenant?.id },
+        body: { packageId: genPkgId, phoneNumber: genPhone || undefined, tenantId: hasScopedTenant ? activeTenant?.id : undefined },
       });
       if (error) throw error;
       if (data?.code) setGeneratedCode(data.code);
-      loadData();
+      await loadData();
     } catch (err: any) {
       console.error(err);
+      toast({
+        title: "Couldn't generate voucher",
+        description: getErrorMessage(err, "The voucher could not be created."),
+        variant: "destructive",
+      });
     }
     setGenerating(false);
   };
@@ -576,10 +650,18 @@ const Admin = () => {
   const revokeVoucher = async (id: string, code: string) => {
     setRevoking(id);
     try {
-      await supabase.functions.invoke("revoke-voucher", { body: { voucherId: id, code, tenantId: activeTenant?.id } });
-      loadData();
+      const { error } = await supabase.functions.invoke("revoke-voucher", {
+        body: { voucherId: id, code, tenantId: hasScopedTenant ? activeTenant?.id : undefined },
+      });
+      if (error) throw error;
+      await loadData();
     } catch (err: any) {
       console.error(err);
+      toast({
+        title: "Couldn't revoke voucher",
+        description: getErrorMessage(err, "The voucher could not be revoked."),
+        variant: "destructive",
+      });
     }
     setRevoking(null);
   };
@@ -590,23 +672,83 @@ const Admin = () => {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
+  const refreshRadiusSecret = () => {
+    const nextSecret = generateRadiusSecret();
+    setRouterForm((current) => ({ ...current, radius_secret: nextSecret }));
+    toast({
+      title: "New RADIUS secret generated",
+      description: "Save settings to sync this shared secret to your ISP routers.",
+    });
+  };
+
   const saveRouterSettings = async () => {
     setSavingRouter(true);
-    if (routerSettings?.id) {
-      let query = supabase.from("router_settings").update(routerForm).eq("id", routerSettings.id);
-      if (hasScopedTenant && activeTenant?.id) {
-        query = query.eq("tenant_id", activeTenant.id);
-      }
-      await query;
-    } else {
-      await supabase.from("router_settings").insert([{
+    try {
+      const normalizedRadiusSecret = isPlaceholderRadiusSecret(routerForm.radius_secret)
+        ? generateRadiusSecret()
+        : routerForm.radius_secret.trim();
+      const nextRouterForm = {
         ...routerForm,
-        created_by: user?.id,
-        ...(hasScopedTenant && activeTenant?.id ? { tenant_id: activeTenant.id } : {}),
-      }]);
+        radius_secret: normalizedRadiusSecret,
+      };
+
+      setRouterForm(nextRouterForm);
+
+      if (routerSettings?.id) {
+        let query = supabase.from("router_settings").update(nextRouterForm).eq("id", routerSettings.id);
+        if (hasScopedTenant && activeTenant?.id) {
+          query = query.eq("tenant_id", activeTenant.id);
+        }
+        const { error } = await query;
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("router_settings").insert([{
+          ...nextRouterForm,
+          created_by: user?.id,
+          ...(hasScopedTenant && activeTenant?.id ? { tenant_id: activeTenant.id } : {}),
+        }]);
+        if (error) throw error;
+      }
+
+      if (hasScopedTenant && activeTenant?.id) {
+        const { data: syncData, error: syncError } = await supabase.functions.invoke("sync-radius-nas", {
+          body: {
+            tenantId: activeTenant.id,
+            sharedSecret: normalizedRadiusSecret,
+          },
+        });
+
+        if (syncError) {
+          console.error("sync-radius-nas failed:", syncError);
+          toast({
+            title: "Router settings saved",
+            description: "RADIUS NAS sync still needs attention. Router mappings will sync after the function is deployed.",
+          });
+        } else if (syncData?.supported === false) {
+          toast({
+            title: "Router settings saved",
+            description: "The shared secret is ready, but the tenant-scoped NAS table has not been deployed yet.",
+          });
+        } else if (syncData?.secret && typeof syncData.secret === "string") {
+          setRouterForm((current) => ({ ...current, radius_secret: syncData.secret }));
+        }
+      }
+
+      await loadData();
+      toast({
+        title: "Router settings saved",
+        description: "The captive portal setup has been updated.",
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Couldn't save router settings",
+        description: getErrorMessage(error, "The router configuration could not be saved."),
+        variant: "destructive",
+      });
+    } finally {
+      setSavingRouter(false);
     }
-    setSavingRouter(false);
-    loadData();
   };
 
   const savePaystackGateway = async () => {
@@ -724,7 +866,7 @@ const Admin = () => {
     const portalHost = hotspotUrl.hostname;
     const assetHost = assetUrl.hostname;
     const radiusIp = routerForm.radius_server_ip || "207.126.167.78";
-    const radiusSecret = routerForm.radius_secret || "mikrotik_radius_secret";
+    const radiusSecret = routerForm.radius_secret.trim() || generateRadiusSecret();
     const authPort = routerForm.radius_auth_port || 1812;
     const acctPort = routerForm.radius_acct_port || 1813;
     const [lanIp, prefixText] = lanCidr.split("/");
@@ -1512,8 +1654,16 @@ const Admin = () => {
                         <Input placeholder="e.g. radius.yourdomain.com or IP" value={routerForm.radius_server_ip} onChange={e => setRouterForm({ ...routerForm, radius_server_ip: e.target.value })} className="font-mono bg-muted/50 text-sm" />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">RADIUS Secret</label>
-                        <Input type="password" placeholder="Shared secret key" value={routerForm.radius_secret} onChange={e => setRouterForm({ ...routerForm, radius_secret: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Shared Secret Per ISP</label>
+                        <div className="flex gap-2">
+                          <Input type="password" placeholder="Shared secret key" value={routerForm.radius_secret} onChange={e => setRouterForm({ ...routerForm, radius_secret: e.target.value })} className="font-mono bg-muted/50 text-sm" />
+                          <Button type="button" variant="outline" className="shrink-0 font-mono text-[10px]" onClick={refreshRadiusSecret}>
+                            Regenerate
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Use the same secret on every router under this ISP. Saving settings also syncs NAS mappings for stations with a router IP or DNS host.
+                        </p>
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Auth Port</label>

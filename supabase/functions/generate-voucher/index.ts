@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantManager } from "../_shared/tenant-access.ts";
+import { upsertRadiusCredentials } from "../_shared/radius.ts";
 import { generateUniqueVoucherCode } from "../_shared/vouchers.ts";
 
 const corsHeaders = {
@@ -29,7 +30,7 @@ serve(async (req) => {
     // Get package details
     let packageQuery = supabase
       .from("packages")
-      .select("duration_minutes, speed_limit, tenant_id")
+      .select(tenantId ? "duration_minutes, speed_limit, tenant_id" : "duration_minutes, speed_limit")
       .eq("id", packageId);
     if (tenantId) {
       packageQuery = packageQuery.eq("tenant_id", tenantId);
@@ -43,37 +44,29 @@ serve(async (req) => {
 
     // Calculate expiry datetime
     const expiresAt = new Date(Date.now() + durationSeconds * 1000);
-    // Format for FreeRADIUS Expiration attribute: "Mon DD YYYY HH:MI:SS"
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const expirationStr = `${months[expiresAt.getMonth()]} ${String(expiresAt.getDate()).padStart(2,'0')} ${expiresAt.getFullYear()} ${String(expiresAt.getHours()).padStart(2,'0')}:${String(expiresAt.getMinutes()).padStart(2,'0')}:${String(expiresAt.getSeconds()).padStart(2,'0')}`;
 
-    const { data: voucher, error: vErr } = await supabase.from("vouchers").insert({
+    const voucherInsert = await supabase.from("vouchers").insert({
       code,
       package_id: packageId,
       phone_number: phoneNumber || "ADMIN-GENERATED",
       status: "active",
       expires_at: expiresAt.toISOString(),
       session_timeout: durationSeconds,
-      tenant_id: tenantId || pkg.tenant_id || null,
+      ...(tenantId ? { tenant_id: tenantId || pkg.tenant_id || null } : {}),
     }).select().single();
+
+    const { data: voucher, error: vErr } = voucherInsert;
 
     if (vErr) throw vErr;
 
-    // radcheck: Password + Session-Timeout + Expiration
-    await supabase.from("radcheck").insert([
-      { username: code, attribute: "Cleartext-Password", op: ":=", value: code },
-      { username: code, attribute: "Session-Timeout", op: ":=", value: String(durationSeconds) },
-      { username: code, attribute: "Expiration", op: ":=", value: expirationStr },
-    ]);
-
-    // radreply: Session-Timeout + Mikrotik-Rate-Limit
-    const radreplyRows: { username: string; attribute: string; op: string; value: string }[] = [
-      { username: code, attribute: "Session-Timeout", op: "=", value: String(durationSeconds) },
-    ];
-    if (pkg.speed_limit) {
-      radreplyRows.push({ username: code, attribute: "Mikrotik-Rate-Limit", op: "=", value: pkg.speed_limit });
-    }
-    await supabase.from("radreply").insert(radreplyRows);
+    await upsertRadiusCredentials(supabase, {
+      tenantId: tenantId || pkg.tenant_id || null,
+      username: code,
+      password: code,
+      sessionTimeout: durationSeconds,
+      expiresAt,
+      speedLimit: pkg.speed_limit || null,
+    });
 
     return new Response(JSON.stringify({ code, voucher }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

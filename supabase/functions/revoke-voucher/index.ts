@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clearRadiusCredentials } from "../_shared/radius.ts";
 import { assertTenantManager } from "../_shared/tenant-access.ts";
 
 const corsHeaders = {
@@ -24,19 +25,28 @@ serve(async (req) => {
     const { voucherId, code, tenantId } = await req.json();
     if (!voucherId) throw new Error("Voucher ID required");
 
-    let voucherQuery = supabase
-      .from("vouchers")
-      .select("tenant_id")
-      .eq("id", voucherId);
-
     if (tenantId) {
-      voucherQuery = voucherQuery.eq("tenant_id", tenantId);
+      let voucherQuery = supabase
+        .from("vouchers")
+        .select("tenant_id")
+        .eq("id", voucherId)
+        .eq("tenant_id", tenantId);
+
+      const { data: voucher, error: voucherError } = await voucherQuery.maybeSingle();
+      if (voucherError || !voucher) throw new Error("Voucher not found");
+
+      await assertTenantManager(supabase, user.id, voucher.tenant_id ?? tenantId);
+    } else {
+      const { data: voucher, error: voucherError } = await supabase
+        .from("vouchers")
+        .select("id")
+        .eq("id", voucherId)
+        .maybeSingle();
+
+      if (voucherError || !voucher) throw new Error("Voucher not found");
+
+      await assertTenantManager(supabase, user.id, undefined);
     }
-
-    const { data: voucher, error: voucherError } = await voucherQuery.maybeSingle();
-    if (voucherError || !voucher) throw new Error("Voucher not found");
-
-    await assertTenantManager(supabase, user.id, voucher.tenant_id ?? tenantId);
 
     // Update voucher status
     await supabase.from("vouchers").update({ status: "revoked" }).eq("id", voucherId);
@@ -46,8 +56,7 @@ serve(async (req) => {
 
     if (code) {
       // Remove RADIUS credentials — FreeRADIUS will reject any new auth attempts
-      await supabase.from("radcheck").delete().eq("username", code);
-      await supabase.from("radreply").delete().eq("username", code);
+      await clearRadiusCredentials(supabase, { tenantId: tenantId ?? null, username: code });
 
       // Mark active accounting sessions as terminated so FreeRADIUS knows
       // the session is done. This sets acctstoptime which causes the NAS

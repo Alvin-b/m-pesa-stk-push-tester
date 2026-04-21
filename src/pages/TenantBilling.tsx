@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { APP_BRAND } from "@/lib/brand";
@@ -70,6 +72,34 @@ const TenantBilling = () => {
   const [copying, setCopying] = useState(false);
   const [invoices, setInvoices] = useState<BillingInvoice[]>([]);
   const [invoiceItems, setInvoiceItems] = useState<Record<string, BillingInvoiceItem[]>>({});
+  
+  const [payPhone, setPayPhone] = useState("");
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState("");
+  const [paySuccess, setPaySuccess] = useState("");
+  const [payDialogOpen, setPayDialogOpen] = useState(false);
+
+  const handlePayDebt = async (invoiceId: string) => {
+    if (!payPhone) {
+      setPayError("Please enter your M-Pesa phone number");
+      return;
+    }
+    setPaying(true);
+    setPayError("");
+    setPaySuccess("");
+    try {
+      const res = await supabase.functions.invoke("platform-stk-push", {
+        body: { invoiceId, phone: payPhone }
+      });
+      if (res.error) throw new Error(res.error.message || "Failed to initiate payment");
+      setPaySuccess("STK Push sent to " + payPhone + ". Please check your phone to confirm payment.");
+      // Note: we're not automatically closing so they can read the success message
+    } catch (err: any) {
+      setPayError(err.message || "Something went wrong.");
+    } finally {
+      setPaying(false);
+    }
+  };
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -440,12 +470,52 @@ const TenantBilling = () => {
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Recovery Checklist</p>
                   <div className="mt-3 space-y-2 text-sm text-slate-300">
                     <p>1. Review the selected invoice amount and period.</p>
-                    <p>2. Copy the settlement summary and share it with finance.</p>
-                    <p>3. Once payment is recorded, clear overdue status to restore tenant access.</p>
+                    <p>2. Click Pay My Debt to initiate a payment prompt.</p>
+                    <p>3. Once payment is recorded, tenant access restores automatically.</p>
                   </div>
                 </div>
                 <Separator className="bg-white/10" />
                 <div className="flex flex-wrap gap-3">
+                  {selectedInvoice && selectedInvoice.status !== "paid" && (
+                    <Dialog open={payDialogOpen} onOpenChange={(open) => { setPayDialogOpen(open); if(!open){ setPayError(""); setPaySuccess(""); } }}>
+                      <DialogTrigger asChild>
+                        <Button className="bg-amber-500 text-slate-950 hover:bg-amber-400">
+                          <CreditCard className="mr-2 h-4 w-4" />
+                          Pay My Debt ({currency(selectedInvoice.total)})
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="border-white/10 bg-slate-900 text-white sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Pay Platform Invoice</DialogTitle>
+                          <DialogDescription className="text-slate-400">
+                            Amount due: <strong className="text-white">{currency(selectedInvoice.total)}</strong>. This will be paid to KCB Paybill 7718913.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-4 py-4">
+                          {payError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{payError}</div>}
+                          {paySuccess && <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">{paySuccess}</div>}
+                          <div className="flex flex-col gap-2">
+                            <label className="text-sm font-medium">M-Pesa Phone Number</label>
+                            <Input
+                              placeholder="0712 345 678"
+                              value={payPhone}
+                              onChange={(e) => setPayPhone(e.target.value)}
+                              className="border-white/10 bg-white/5 text-white"
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            onClick={() => handlePayDebt(selectedInvoice.id)}
+                            disabled={paying || !!paySuccess}
+                            className="w-full bg-cyan-600 text-white hover:bg-cyan-500"
+                          >
+                            {paying ? "Sending STK Push..." : "Send Payment Prompt"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
                   <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10" asChild>
                     <a href={`mailto:${settlementEmail}?subject=${encodeURIComponent(`Invoice support for ${activeTenant?.name ?? "tenant"}`)}`}>
                       <Mail className="mr-2 h-4 w-4" />

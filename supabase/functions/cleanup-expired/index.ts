@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clearRadiusCredentials } from "../_shared/radius.ts";
+import { isMissingSchemaError } from "../_shared/radius.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,11 +19,25 @@ serve(async (req) => {
     const now = new Date().toISOString();
 
     // Find all active vouchers that have expired
-    const { data: expired } = await sb
+    let expiredQuery = await sb
       .from("vouchers")
-      .select("id, code")
+      .select("id, code, tenant_id")
       .eq("status", "active")
       .lt("expires_at", now);
+
+    if (expiredQuery.error && isMissingSchemaError(expiredQuery.error)) {
+      expiredQuery = await sb
+        .from("vouchers")
+        .select("id, code")
+        .eq("status", "active")
+        .lt("expires_at", now);
+    }
+
+    if (expiredQuery.error) {
+      throw expiredQuery.error;
+    }
+
+    const expired = expiredQuery.data;
 
     if (!expired || expired.length === 0) {
       return new Response(JSON.stringify({ cleaned: 0 }), {
@@ -39,8 +55,7 @@ serve(async (req) => {
       await sb.from("sessions").update({ is_active: false }).eq("voucher_id", v.id);
 
       // Remove RADIUS credentials so user can't re-auth
-      await sb.from("radcheck").delete().eq("username", v.code);
-      await sb.from("radreply").delete().eq("username", v.code);
+      await clearRadiusCredentials(sb, { tenantId: v.tenant_id ?? null, username: v.code });
 
       // Close accounting sessions
       await sb.from("radacct").update({

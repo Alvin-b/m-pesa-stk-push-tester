@@ -1,6 +1,7 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { LEGACY_PORTAL_NAME, LEGACY_PORTAL_SUBTITLE, LEGACY_TENANT_ID, LEGACY_TENANT_SLUG, getBackendCapabilities } from "@/lib/backend";
 import { useLocation } from "react-router-dom";
 
 export interface PlatformTenant {
@@ -24,6 +25,17 @@ interface PlatformContextType {
 
 const PlatformContext = createContext<PlatformContextType | undefined>(undefined);
 
+const LEGACY_PLATFORM_TENANT: PlatformTenant = {
+  id: LEGACY_TENANT_ID,
+  name: "Legacy ISP",
+  slug: LEGACY_TENANT_SLUG,
+  billingStatus: "active",
+  monthlyBaseFee: 0,
+  perPurchaseFee: 0,
+  portalTitle: LEGACY_PORTAL_NAME,
+  portalSubtitle: LEGACY_PORTAL_SUBTITLE,
+};
+
 export function PlatformProvider({ children }: { children: ReactNode }) {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const location = useLocation();
@@ -42,6 +54,14 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     setLoading(true);
 
     try {
+      const capabilities = await getBackendCapabilities();
+      if (!capabilities.multitenant) {
+        setActiveTenant(LEGACY_PLATFORM_TENANT);
+        setTenantMembershipRole(isAdmin ? "platform_admin" : null);
+        setLoading(false);
+        return;
+      }
+
       const requestedTenantSlug = isAdmin
         ? new URLSearchParams(location.search).get("tenant")?.trim().toLowerCase() || null
         : null;
