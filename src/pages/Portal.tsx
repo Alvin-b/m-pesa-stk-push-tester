@@ -358,15 +358,41 @@ const Portal = () => {
 
   /* Init — save params, detect MikroTik, auto-reconnect, cleanup expired */
   useEffect(() => {
+    let cancelled = false;
+
     saveParams();
     const mt = getParams();
-    if (mt.loginOnly || mt.login || mt.fromMikroTik) setMikrotikDetected(true);
+    const fromMikroTik = Boolean(mt.loginOnly || mt.login || mt.fromMikroTik);
+
+    // Clear tenant-specific state before loading the next portal so ISPs never bleed together.
+    setMikrotikDetected(fromMikroTik);
+    setPackages([]);
+    setSelectedPkg(null);
+    setStep("packages");
+    setPhone("");
+    setEmail("");
+    setAccessInput("");
+    setLoading(false);
+    setVoucherCode("");
+    setError("");
+    setFailureReason("");
+    setCopied(false);
+    setPollCount(0);
+    setExpiresAt(null);
+    setTimeLeft("");
+    setTenantName(APP_PORTAL_NAME);
+    setTenantPortalId(null);
+    setTenantResolved(false);
+    setPaymentOptions([]);
+    setSelectedProvider("mpesa");
 
     // Trigger cleanup of expired sessions (fire-and-forget)
     supabase.functions.invoke("cleanup-expired", { body: {} }).catch(() => {});
 
-    void (async () => {
+    const loadPortal = async () => {
       const capabilities = await getBackendCapabilities();
+      if (cancelled) return;
+
       const multitenantEnabled = capabilities.multitenant;
       let resolvedTenantId: string | null = null;
       let resolvedTenantName = APP_PORTAL_NAME;
@@ -377,6 +403,8 @@ const Portal = () => {
           .select("id, name, portal_title")
           .eq("slug", scopedTenantSlug)
           .maybeSingle();
+
+        if (cancelled) return;
 
         if (tenantError) {
           console.error("Failed to resolve tenant portal:", tenantError);
@@ -411,6 +439,9 @@ const Portal = () => {
         const { data: paymentOptionData } = await supabase.functions.invoke("list-payment-options", {
           body: { tenantId: resolvedTenantId },
         });
+
+        if (cancelled) return;
+
         const resolvedPaymentOptions = (paymentOptionData?.options as PaymentOption[] | undefined) || [];
         setPaymentOptions(resolvedPaymentOptions);
         if (resolvedPaymentOptions.length > 0) {
@@ -435,6 +466,8 @@ const Portal = () => {
       }
 
       const { data, error: packageError } = await packagesQuery;
+      if (cancelled) return;
+
       if (packageError) {
         console.error("Failed to load portal packages:", packageError);
       }
@@ -452,6 +485,8 @@ const Portal = () => {
         const { data: verifyData, error: verifyError } = await supabase.functions.invoke("paystack-verify", {
           body: { reference: paystackReference, tenantId: resolvedTenantId },
         });
+
+        if (cancelled) return;
 
         if (verifyError || verifyData?.error || !verifyData?.success) {
           setLoading(false);
@@ -479,11 +514,13 @@ const Portal = () => {
         localStorage.getItem(activeCodeStorageKey) ||
         (scopedTenantSlug === LEGACY_TENANT_SLUG ? localStorage.getItem("active_code") : null);
 
-      if (!stored || (!mt.loginOnly && !mt.login && !mt.fromMikroTik)) {
+      if (!stored || !fromMikroTik) {
         return;
       }
 
       const voucher = await findVoucherByCodeOrReceipt(stored, undefined, resolvedTenantId);
+      if (cancelled) return;
+
       const status = voucher?.status as string | undefined;
       const expiresAtValue = typeof voucher?.expires_at === "string" ? voucher.expires_at : null;
       const expired = expiresAtValue ? new Date(expiresAtValue) < new Date() : false;
@@ -498,6 +535,8 @@ const Portal = () => {
       }
 
       const radiusCheck = await validateRadiusCode(stored, resolvedTenantId);
+      if (cancelled) return;
+
       if (radiusCheck.status !== "accepted") {
         if (radiusCheck.shouldForgetCode || radiusCheck.status === "rejected") {
           localStorage.removeItem(activeCodeStorageKey);
@@ -513,7 +552,13 @@ const Portal = () => {
       }
 
       loginMikroTik(stored);
-    })();
+    };
+
+    void loadPortal();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeCodeStorageKey, scopedTenantSlug]);
 
   /* Session countdown timer */

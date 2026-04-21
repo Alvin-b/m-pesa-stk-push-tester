@@ -932,7 +932,7 @@ const Admin = () => {
     ].join("\n");
     const blob = new Blob([script], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "hotspot-setup.rsc"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = `${activeTenant?.slug || "tenant"}-hotspot-setup.rsc`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -947,7 +947,7 @@ const Admin = () => {
     });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "login.html"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = `${activeTenant?.slug || "tenant"}-login.html`; a.click();
     URL.revokeObjectURL(url);
   };
 
