@@ -139,7 +139,7 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 
 const Admin = () => {
   const { user, isAdmin, loading: authLoading, signOut } = useAuth();
-  const { activeTenant, tenantMembershipRole, loading: platformLoading } = usePlatform();
+  const { activeTenant, tenantMembershipRole, multitenantEnabled, loading: platformLoading } = usePlatform();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -198,6 +198,7 @@ const Admin = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const canAccessAdmin = isAdmin || !!tenantMembershipRole;
+  const provisioningBlocked = !!user && !isAdmin && !platformLoading && !multitenantEnabled;
   const hasTenantContext = !!activeTenant?.id;
   const isLegacyTenantContext = activeTenant?.id === LEGACY_TENANT_ID;
 
@@ -207,9 +208,6 @@ const Admin = () => {
       return;
     }
 
-    if (!authLoading && !platformLoading && user && !canAccessAdmin) {
-      navigate("/admin", { replace: true });
-    }
   }, [authLoading, platformLoading, user, canAccessAdmin, navigate]);
 
   useEffect(() => {
@@ -957,6 +955,45 @@ const Admin = () => {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground font-mono">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (provisioningBlocked) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <div className="mx-auto flex min-h-screen max-w-3xl items-center px-4 py-12">
+          <Card className="w-full border-border bg-card/95 shadow-2xl">
+            <CardHeader>
+              <CardTitle className="text-2xl">ISP Workspace Not Provisioned Yet</CardTitle>
+              <CardDescription>
+                Your account was created, but the live database is still missing the tenant-scoped tables needed to
+                give each ISP its own dashboard, packages, portal, and vouchers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                Shared access has been blocked here on purpose so new ISP accounts do not keep landing inside the
+                shared Legacy ISP dashboard.
+              </div>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>Signed in as: {user?.email || "Unknown user"}</p>
+                <p>Next fix needed: apply the pending Supabase multitenant migrations to the live project.</p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={() => window.location.reload()}>Retry Provisioning</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void signOut();
+                  }}
+                >
+                  Sign Out
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );

@@ -19,6 +19,7 @@ interface PlatformContextType {
   activeTenant: PlatformTenant | null;
   tenantMembershipRole: string | null;
   isPlatformAdmin: boolean;
+  multitenantEnabled: boolean;
   loading: boolean;
   refresh: () => Promise<void>;
 }
@@ -41,6 +42,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [activeTenant, setActiveTenant] = useState<PlatformTenant | null>(null);
   const [tenantMembershipRole, setTenantMembershipRole] = useState<string | null>(null);
+  const [multitenantEnabled, setMultitenantEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadPlatform = async () => {
@@ -55,8 +57,10 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
 
     try {
       const capabilities = await getBackendCapabilities();
+      setMultitenantEnabled(capabilities.multitenant);
+
       if (!capabilities.multitenant) {
-        setActiveTenant(LEGACY_PLATFORM_TENANT);
+        setActiveTenant(isAdmin ? LEGACY_PLATFORM_TENANT : null);
         setTenantMembershipRole(isAdmin ? "platform_admin" : null);
         setLoading(false);
         return;
@@ -146,6 +150,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       setTenantMembershipRole(null);
     } catch (error) {
       console.warn("Platform context failed to load tenant context:", error);
+      setMultitenantEnabled(false);
       setActiveTenant(null);
       setTenantMembershipRole(null);
     } finally {
@@ -163,10 +168,11 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       activeTenant,
       tenantMembershipRole,
       isPlatformAdmin: isAdmin,
+      multitenantEnabled,
       loading: authLoading || loading,
       refresh: loadPlatform,
     }),
-    [activeTenant, tenantMembershipRole, isAdmin, authLoading, loading],
+    [activeTenant, tenantMembershipRole, isAdmin, multitenantEnabled, authLoading, loading],
   );
 
   return <PlatformContext.Provider value={value}>{children}</PlatformContext.Provider>;

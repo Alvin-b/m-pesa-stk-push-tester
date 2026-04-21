@@ -31,31 +31,11 @@ export const isMissingSchemaError = (error: SupabaseLikeError) => {
   );
 };
 
-let capabilityPromise: Promise<BackendCapabilities> | null = null;
-
-const detectBackendCapabilities = async (): Promise<BackendCapabilities> => {
-  const [tenantsResult, packageTenantResult, gatewayResult] = await Promise.all([
-    supabase.from("tenants").select("id").limit(1),
-    supabase.from("packages").select("tenant_id").limit(1),
-    supabase.from("tenant_payment_gateways").select("id").limit(1),
-  ]);
-
-  const tenantsTable = !isMissingSchemaError(tenantsResult.error);
-  const packagesHaveTenantId = !isMissingSchemaError(packageTenantResult.error);
-  const tenantPaymentGatewaysTable = !isMissingSchemaError(gatewayResult.error);
-
+export const getBackendCapabilities = async (): Promise<BackendCapabilities> => {
   return {
-    multitenant: tenantsTable && packagesHaveTenantId,
-    packagesHaveTenantId,
-    tenantPaymentGatewaysTable,
-    tenantsTable,
+    multitenant: true,
+    packagesHaveTenantId: true,
+    tenantPaymentGatewaysTable: true,
+    tenantsTable: true,
   };
-};
-
-export const getBackendCapabilities = () => {
-  if (!capabilityPromise) {
-    capabilityPromise = detectBackendCapabilities();
-  }
-
-  return capabilityPromise;
 };
