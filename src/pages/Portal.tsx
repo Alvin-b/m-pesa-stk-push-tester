@@ -448,6 +448,17 @@ const Portal = () => {
           setSelectedProvider(resolvedPaymentOptions[0].providerId);
         }
       } else {
+        if (tenantSlug) {
+          setTenantResolved(false);
+          setTenantPortalId(null);
+          setTenantName("Portal Not Ready");
+          setPackages([]);
+          setPaymentOptions([]);
+          setError("This ISP portal is not ready yet because tenant workspace provisioning has not been completed.");
+          setStep("packages");
+          return;
+        }
+
         setTenantResolved(true);
         setTenantPortalId(null);
         setTenantName(APP_PORTAL_NAME);

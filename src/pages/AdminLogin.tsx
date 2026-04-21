@@ -71,7 +71,7 @@ const AdminLogin = () => {
       if (signUpError) {
         setError(signUpError);
       } else {
-        setSuccess(`Account created. Your tenant portal will be provisioned automatically after signup. Verify your email, then sign in to open your ${APP_BRAND} ISP dashboard.`);
+        setSuccess(`Account created. Verify your email, then sign in to open your ${APP_BRAND} ISP dashboard. Your ISP workspace will be created or re-attached automatically on first sign-in.`);
         setIsSignUp(false);
         navigate("/login");
       }

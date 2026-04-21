@@ -10,6 +10,7 @@ export interface BackendCapabilities {
   packagesHaveTenantId: boolean;
   tenantPaymentGatewaysTable: boolean;
   tenantsTable: boolean;
+  tenantMembershipsTable: boolean;
 }
 
 type SupabaseLikeError = {
@@ -17,7 +18,10 @@ type SupabaseLikeError = {
   message?: string | null;
 } | null | undefined;
 
-const missingSchemaCodes = new Set(["42703", "42P01", "PGRST205"]);
+const missingSchemaCodes = new Set(["42703", "42P01", "PGRST202", "PGRST205"]);
+
+let cachedCapabilities: BackendCapabilities | null = null;
+let capabilitiesPromise: Promise<BackendCapabilities> | null = null;
 
 export const isMissingSchemaError = (error: SupabaseLikeError) => {
   if (!error) return false;
@@ -31,11 +35,43 @@ export const isMissingSchemaError = (error: SupabaseLikeError) => {
   );
 };
 
-export const getBackendCapabilities = async (): Promise<BackendCapabilities> => {
-  return {
-    multitenant: true,
-    packagesHaveTenantId: true,
-    tenantPaymentGatewaysTable: true,
-    tenantsTable: true,
-  };
+export const getBackendCapabilities = async (forceRefresh = false): Promise<BackendCapabilities> => {
+  if (!forceRefresh && cachedCapabilities) {
+    return cachedCapabilities;
+  }
+
+  if (!forceRefresh && capabilitiesPromise) {
+    return capabilitiesPromise;
+  }
+
+  capabilitiesPromise = (async () => {
+    const [tenantsResult, membershipsResult, packagesResult, gatewaysResult] = await Promise.all([
+      supabase.from("tenants").select("id").limit(1),
+      supabase.from("tenant_memberships").select("id").limit(1),
+      supabase.from("packages").select("tenant_id").limit(1),
+      supabase.from("tenant_payment_gateways").select("id").limit(1),
+    ]);
+
+    const tenantsTable = !isMissingSchemaError(tenantsResult.error);
+    const tenantMembershipsTable = !isMissingSchemaError(membershipsResult.error);
+    const packagesHaveTenantId = !isMissingSchemaError(packagesResult.error);
+    const tenantPaymentGatewaysTable = !isMissingSchemaError(gatewaysResult.error);
+
+    const capabilities: BackendCapabilities = {
+      multitenant: tenantsTable && tenantMembershipsTable && packagesHaveTenantId,
+      packagesHaveTenantId,
+      tenantPaymentGatewaysTable,
+      tenantsTable,
+      tenantMembershipsTable,
+    };
+
+    cachedCapabilities = capabilities;
+    return capabilities;
+  })();
+
+  try {
+    return await capabilitiesPromise;
+  } finally {
+    capabilitiesPromise = null;
+  }
 };

@@ -197,8 +197,8 @@ const Admin = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const provisioningBlocked = !!user && !isAdmin && !platformLoading && !multitenantEnabled;
   const hasTenantContext = !!activeTenant?.id;
+  const provisioningBlocked = !!user && !isAdmin && !platformLoading && (!multitenantEnabled || !hasTenantContext);
   const isLegacyTenantContext = activeTenant?.id === LEGACY_TENANT_ID;
 
   useEffect(() => {
@@ -967,18 +967,24 @@ const Admin = () => {
             <CardHeader>
               <CardTitle className="text-2xl">ISP Workspace Not Provisioned Yet</CardTitle>
               <CardDescription>
-                Your account was created, but the live database is still missing the tenant-scoped tables needed to
-                give each ISP its own dashboard, packages, portal, and vouchers.
+                {!multitenantEnabled
+                  ? "Your account was created, but the live database is still missing the tenant-scoped tables needed to give each ISP its own dashboard, packages, portal, and vouchers."
+                  : "Your sign-in succeeded, but we could not attach this account to its ISP workspace yet."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                Shared access has been blocked here on purpose so new ISP accounts do not keep landing inside the
-                shared Legacy ISP dashboard.
+                {!multitenantEnabled
+                  ? "Shared access has been blocked here on purpose so new ISP accounts do not keep landing inside the shared Legacy ISP dashboard."
+                  : "The dashboard is waiting for a tenant membership row for this ISP account. Retry after deployment or after the workspace repair function runs."}
               </div>
               <div className="space-y-2 text-sm text-muted-foreground">
                 <p>Signed in as: {user?.email || "Unknown user"}</p>
-                <p>Next fix needed: apply the pending Supabase multitenant migrations to the live project.</p>
+                <p>
+                  Next fix needed: {!multitenantEnabled
+                    ? "apply the pending Supabase multitenant migrations to the live project."
+                    : "finish tenant workspace provisioning for this account so packages, vouchers, and router settings can be scoped correctly."}
+                </p>
               </div>
               <div className="flex flex-wrap gap-3">
                 <Button onClick={() => window.location.reload()}>Retry Provisioning</Button>

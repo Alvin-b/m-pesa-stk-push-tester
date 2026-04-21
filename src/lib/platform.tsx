@@ -1,7 +1,14 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import { LEGACY_PORTAL_NAME, LEGACY_PORTAL_SUBTITLE, LEGACY_TENANT_ID, LEGACY_TENANT_SLUG, getBackendCapabilities } from "@/lib/backend";
+import {
+  LEGACY_PORTAL_NAME,
+  LEGACY_PORTAL_SUBTITLE,
+  LEGACY_TENANT_ID,
+  LEGACY_TENANT_SLUG,
+  getBackendCapabilities,
+  isMissingSchemaError,
+} from "@/lib/backend";
 import { useLocation } from "react-router-dom";
 
 export interface PlatformTenant {
@@ -37,6 +44,22 @@ const LEGACY_PLATFORM_TENANT: PlatformTenant = {
   portalSubtitle: LEGACY_PORTAL_SUBTITLE,
 };
 
+type TenantRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  billing_status: PlatformTenant["billingStatus"];
+  monthly_base_fee: number | null;
+  per_purchase_fee: number | null;
+  portal_title: string | null;
+  portal_subtitle: string | null;
+};
+
+type MembershipRecord = {
+  role?: string;
+  tenant?: TenantRecord | null;
+} | null;
+
 export function PlatformProvider({ children }: { children: ReactNode }) {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const location = useLocation();
@@ -70,16 +93,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
         ? new URLSearchParams(location.search).get("tenant")?.trim().toLowerCase() || null
         : null;
 
-      const mapTenant = (tenant: {
-        id: string;
-        name: string;
-        slug: string;
-        billing_status: PlatformTenant["billingStatus"];
-        monthly_base_fee: number | null;
-        per_purchase_fee: number | null;
-        portal_title: string | null;
-        portal_subtitle: string | null;
-      }): PlatformTenant => ({
+      const mapTenant = (tenant: TenantRecord): PlatformTenant => ({
         id: tenant.id,
         name: tenant.name,
         slug: tenant.slug,
@@ -90,26 +104,34 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
         portalSubtitle: tenant.portal_subtitle,
       });
 
-      const membershipQuery = await supabase
-        .from("tenant_memberships")
-        .select("role, tenant:tenant_id(id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle)")
-        .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
+      const loadMembership = async (): Promise<MembershipRecord> => {
+        const membershipQuery = await supabase
+          .from("tenant_memberships")
+          .select("role, tenant:tenant_id(id, name, slug, billing_status, monthly_base_fee, per_purchase_fee, portal_title, portal_subtitle)")
+          .eq("user_id", user.id)
+          .limit(1)
+          .maybeSingle();
 
-      const membership = membershipQuery.data as {
-        role?: string;
-        tenant?: {
-          id: string;
-          name: string;
-          slug: string;
-          billing_status: PlatformTenant["billingStatus"];
-          monthly_base_fee: number | null;
-          per_purchase_fee: number | null;
-          portal_title: string | null;
-          portal_subtitle: string | null;
-        } | null;
-      } | null;
+        if (membershipQuery.error) {
+          throw membershipQuery.error;
+        }
+
+        return membershipQuery.data as MembershipRecord;
+      };
+
+      let membership = await loadMembership();
+
+      if (!isAdmin && !membership?.tenant) {
+        const { error: provisionError } = await supabase.rpc("ensure_current_user_tenant_workspace");
+
+        if (provisionError && !isMissingSchemaError(provisionError)) {
+          console.warn("Failed to auto-provision tenant workspace:", provisionError);
+        }
+
+        if (!provisionError) {
+          membership = await loadMembership();
+        }
+      }
 
       if (requestedTenantSlug) {
         const overrideQuery = await supabase
