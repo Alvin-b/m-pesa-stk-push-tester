@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth";
+import { getBackendCapabilities } from "@/lib/backend";
 import { APP_BRAND, APP_OPERATOR_CONSOLE, APP_PLATFORM_NAME } from "@/lib/brand";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Wifi, LogIn, UserPlus } from "lucide-react";
@@ -25,11 +26,26 @@ const AdminLogin = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [signupProvisioningReady, setSignupProvisioningReady] = useState(true);
   const { signIn, signUp } = useAuth();
 
   useEffect(() => {
     setIsSignUp(signUpRequested);
   }, [signUpRequested]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const capabilities = await getBackendCapabilities();
+      if (cancelled) return;
+      setSignupProvisioningReady(capabilities.multitenant);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const switchMode = (nextMode: "login" | "signup") => {
     setError("");
@@ -45,6 +61,12 @@ const AdminLogin = () => {
     setSuccess("");
 
     if (isSignUp) {
+      if (!signupProvisioningReady) {
+        setError("ISP signup is temporarily unavailable until the tenant workspace migrations are deployed to the live database.");
+        setLoading(false);
+        return;
+      }
+
       const { error: signUpError } = await signUp(email, password, fullName, businessName, businessSlug, supportPhone);
       if (signUpError) {
         setError(signUpError);
@@ -119,6 +141,13 @@ const AdminLogin = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isSignUp && !signupProvisioningReady && (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-mono text-amber-100">
+                New ISP signup is paused right now because the live database is still missing the tenant workspace
+                tables. Existing accounts can still sign in.
+              </div>
+            )}
+
             {isSignUp && (
               <>
                 <div className="space-y-1.5">
@@ -216,13 +245,19 @@ const AdminLogin = () => {
             {error && <p className="text-destructive text-xs font-mono">{error}</p>}
             {success && <p className="text-primary text-xs font-mono">{success}</p>}
 
-            <Button type="submit" disabled={loading} className="w-full font-mono font-semibold h-11 text-base">
+            <Button
+              type="submit"
+              disabled={loading || (isSignUp && !signupProvisioningReady)}
+              className="w-full font-mono font-semibold h-11 text-base"
+            >
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {isSignUp ? "Create ISP Account" : "Sign In"}
             </Button>
           </form>
           <p className="text-center text-[11px] font-mono text-muted-foreground">
-            Customer portals stay tenant-specific at `/portal/your-isp-slug`, and signup auto-creates that tenant shell.
+            {signupProvisioningReady
+              ? "Customer portals stay tenant-specific at `/portal/your-isp-slug`, and signup auto-creates that tenant shell."
+              : "Tenant-specific signup will be re-enabled once the live multitenant database migrations are applied."}
           </p>
         </CardContent>
       </Card>

@@ -197,7 +197,6 @@ const Admin = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const canAccessAdmin = isAdmin || !!tenantMembershipRole;
   const provisioningBlocked = !!user && !isAdmin && !platformLoading && !multitenantEnabled;
   const hasTenantContext = !!activeTenant?.id;
   const isLegacyTenantContext = activeTenant?.id === LEGACY_TENANT_ID;
@@ -208,7 +207,7 @@ const Admin = () => {
       return;
     }
 
-  }, [authLoading, platformLoading, user, canAccessAdmin, navigate]);
+  }, [authLoading, user, navigate]);
 
   useEffect(() => {
     if (user) loadData();
